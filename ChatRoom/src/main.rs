@@ -1,9 +1,11 @@
-use std::{net::{TcpListener, TcpStream}, thread};
+use std::{net::{TcpListener, TcpStream}, thread, io::Write};
 use std::time::Duration;
 
-fn handle_connection(stream: TcpStream) {
+fn handle_connection(mut client: TcpStream) {
     println!("New connection");
-        
+    let data:&[u8] = "Welcome to the server".as_bytes();
+    client.write(data);
+
 }
 const MAX_USERS:i32 = 5;
 
@@ -21,7 +23,6 @@ fn main() {
                             handle_connection(s);
                         });
                       
-
                     },
                     Err(e) => { println!("[SERVER]: ERROR DURING CONNECTION - {}", e) }
                 }
