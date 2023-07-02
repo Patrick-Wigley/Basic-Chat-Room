@@ -6,16 +6,23 @@ fn handle_connection(stream: TcpStream) {
 }
 
 fn main() {
-    let listener = TcpListener::bind("127.0.0.1:80").unwrap();
+    let listener_result = TcpListener::bind("127.0.0.1:80");
     
-    for incoming_stream in listener.incoming() {
-        match incoming_stream {
-            Ok(s) => {
-                handle_connection(s)
+    let listener:TcpListener;
+
+    match listener_result {
+        Ok(listener) => {
+            println!("[SERVER]: Now Listening for connections");
+            for incoming_stream in listener.incoming() {
+                match incoming_stream {
+                    Ok(s) => { handle_connection(s) },
+                    Err(e) => { println!("[SERVER]: ERROR DURING CONNECTION - {}", e) }
+                }
             }
-            Err(e) => {  println!("ERROR DURING CONNECTION")   }
+        }
+        Err(e) => {
+            println!("[SERVER]: {}", e);
         }
     }
 
-    println!("Hello, world!");
 }
