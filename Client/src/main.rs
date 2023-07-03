@@ -3,24 +3,25 @@ use std::io::{Read, Write};
 use std::{str, string};
 
 fn main() {
-    
-    let mut stream = TcpStream::connect("127.0.0.1:80");
+    let stream = TcpStream::connect("127.0.0.1:80");
 
     match stream {
-        Ok(mut server) => {
-            println!("Connected to server");
+        Ok(mut stream) => {
+            println!("Connected to stream");
 
-            let mut raw_data = [0u8; 128];
-            server.read(&mut raw_data);
-            
-            let data = std::str::from_utf8(&raw_data);
-            
-
-            match data {
-                Ok(msg) => {
-                    println!("{}", msg);
+            let mut raw_data:[u8; 128] = [0u8; 128];
+            loop {
+                let _ = stream.read(&mut raw_data);
+                let data = std::str::from_utf8(&raw_data);
+                
+                
+                match data {
+                    Ok(msg) => {
+                        println!("{}", msg);
+                    }
+                    Err(e) => {println!("ERROR: {}", e); break;}
                 }
-                Err(e) => {println!("ERROR: {}", e)}
+
             }
         }
         Err(e) => {println!("{}", e)}
