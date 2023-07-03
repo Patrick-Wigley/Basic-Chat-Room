@@ -14,7 +14,7 @@ fn main() {
                 let _ = stream.read(&mut raw_data);
                 let data = std::str::from_utf8(&raw_data);
                 
-                
+
                 match data {
                     Ok(msg) => {
                         println!("{}", msg);
@@ -24,7 +24,7 @@ fn main() {
 
             }
         }
-        Err(e) => {println!("{}", e)}
+        Err(e) => {println!("Could not connect: {}", e)}
     }
 
 }
