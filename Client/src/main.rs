@@ -2,8 +2,31 @@ use std::net::{SocketAddr, TcpStream};
 use std::io::{Read, Write};
 use std::{str, string};
 
+use tetra::graphics::{self, Color};
+use tetra::{Context, ContextBuilder, State};
+
+struct GameState;
+
+impl State for GameState {
+    fn draw(&mut self, ctx: &mut Context) -> tetra::Result {
+        // Cornflower blue, as is tradition
+        graphics::clear(ctx, Color::rgb(0.392, 0.584, 0.929));
+        Ok(())
+    }
+}
+
+
+fn setup_window() -> tetra::Result {
+      ContextBuilder::new("Online Squares!", 1280, 720)
+        .build()?
+        .run(|_| Ok(GameState))
+}
 fn main() {
     let stream = TcpStream::connect("127.0.0.1:80");
+
+
+    let _ = setup_window();
+
 
     match stream {
         Ok(mut stream) => {
