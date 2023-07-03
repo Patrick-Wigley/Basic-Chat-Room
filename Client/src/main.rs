@@ -1,6 +1,7 @@
+use std::error::Error;
 use std::net::{SocketAddr, TcpStream};
 use std::io::{Read, Write};
-use std::{str, string};
+use std::{str, string, thread};
 
 use tetra::{graphics::{mesh::{GeometryBuilder, Mesh, ShapeStyle}, self, Color}, input::{self, Key}, Context, ContextBuilder, State};
 use tetra::math::Vec2;
@@ -35,7 +36,7 @@ impl State for GameState {
         self.player_shape.draw(ctx, Vec2::from(self.local_player_position));
 
         Ok(())
-    }
+    }  
     fn update(&mut self, ctx: &mut Context) -> tetra::Result {
         let mut speed:f32 = 0.0;
         if input::is_key_down(ctx, Key::LeftShift) {
@@ -65,12 +66,20 @@ fn setup_window() -> tetra::Result {
         .run(GameState::new)
 }
 fn main() {
-    let stream = TcpStream::connect("127.0.0.1:80");
+    thread::spawn(server_handle);
+    
     let _ = setup_window();
     
+}
+
+
+// Server Communications
+fn server_handle() {
+    let stream = TcpStream::connect("127.0.0.1:80");
+
     match stream {
         Ok(mut stream) => {
-            println!("Connected to stream");
+            println!("Connected to server");
 
             let mut raw_data:[u8; 128] = [0u8; 128];
             loop {
@@ -87,7 +96,6 @@ fn main() {
 
             }
         }
-        Err(e) => {println!("Could not connect: {}", e)}
+        Err(e) => { panic!("{}", e) }
     }
-
 }
