@@ -1,21 +1,27 @@
-use std::error::Error;
-use std::net::{SocketAddr, TcpStream};
+use std::net::{TcpStream};
 use std::io::{Read, Write};
 use std::{str, string, thread};
 
-use tetra::{graphics::{mesh::{GeometryBuilder, Mesh, ShapeStyle}, self, Color}, input::{self, Key}, Context, ContextBuilder, State};
+use tetra::{graphics::{mesh::{Mesh, ShapeStyle}, self, Color}, input::{self, Key}, Context, ContextBuilder, State};
 use tetra::math::Vec2;
 
 struct GameState {
     local_player_position: [f32; 2],
-
-    global_player_positions: Vec<[f32; 2]>,
+    global_player_positions: Vec<[f32; 2]>,    
+    player_shape: Mesh,
+    // Thread Communications
+ 
     
-    player_shape: Mesh
 }
+static mut local_details:[f32; 2] = [0.0, 0.0];
 static players_details:Vec<[f32;2]> = Vec::new();
+
+
+// let main_thread_sender_ptr: Sender<[f32;2]> = None;  
+
+
 const STARTING_POSITION:[f32; 2] = [0.0, 0.0];
-const CURRENT_PLAYER:usize = 0; 
+
 const MOVEMENT_SPEED: f32 = 2.0;
 
 impl GameState {
@@ -23,7 +29,8 @@ impl GameState {
         Ok(GameState {  
             local_player_position: [0.0; 2],
             global_player_positions: Vec::new(),
-            player_shape: Mesh::circle(ctx, ShapeStyle::Stroke(10.0), Vec2::zero(), 10.0)?
+            player_shape: Mesh::circle(ctx, ShapeStyle::Stroke(10.0), Vec2::zero(), 10.0)?,
+          
         })   
     }
 }
@@ -55,15 +62,22 @@ impl State for GameState {
             self.local_player_position[0] += MOVEMENT_SPEED + speed;
         }
 
+        // Setting global var to be sent to server_handle thread
+        unsafe {
+            local_details = self.local_player_position.clone();
+        }
+
         Ok(())
     }
 }
 
 
+
 fn setup_window() -> tetra::Result {
-      ContextBuilder::new("Online Squares!", 1280, 720)
+    ContextBuilder::new("Online Squares!", 1280, 720)
         .build()?
-        .run(GameState::new)
+        .run(GameState::new)    
+ 
 }
 fn main() {
     thread::spawn(server_handle);
@@ -83,19 +97,44 @@ fn server_handle() {
 
             let mut raw_data:[u8; 128] = [0u8; 128];
             loop {
+                
                 let _ = stream.read(&mut raw_data);
                 let data = std::str::from_utf8(&raw_data);
                 
                 match data {
                     Ok(msg) => {
-                        println!("Server says: {}", msg);
+                        // println!("Server says: {}", msg);
                     }
                     Err(e) => {println!("ERROR: {}", e); break;}
                 }
                 
-                let _ = stream.write("Hi Server".as_bytes());
+                // Get local players details from main-thread
+                let local_player_details:[f32; 2];
+                unsafe {
+                    local_player_details = local_details.clone();
+                }
+                let mut vec:Vec<[f32; 2]> = Vec::new();
+                vec.push(local_player_details);
+                
+                let send_val = f32vec_to_string(vec);
+
+                let _ = stream.write(send_val.as_bytes());
+                
             }
         }
         Err(e) => { panic!("{}", e) }
     }
+}
+
+
+fn f32vec_to_string(arr: Vec<[f32; 2]>) -> String
+{
+    let mut ret:String = "".to_string();
+    
+    for i in 0..arr.len() {
+        let values = arr[i];
+        ret.push_str(format!("{},{}; ", values[0], values[1]).as_str());
+    };
+
+    ret
 }
