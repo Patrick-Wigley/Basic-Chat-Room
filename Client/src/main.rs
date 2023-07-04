@@ -13,7 +13,7 @@ struct GameState {
     
     player_shape: Mesh
 }
-
+static players_details:Vec<[f32;2]> = Vec::new();
 const STARTING_POSITION:[f32; 2] = [0.0, 0.0];
 const CURRENT_PLAYER:usize = 0; 
 const MOVEMENT_SPEED: f32 = 2.0;
@@ -86,14 +86,14 @@ fn server_handle() {
                 let _ = stream.read(&mut raw_data);
                 let data = std::str::from_utf8(&raw_data);
                 
-
                 match data {
                     Ok(msg) => {
-                        println!("{}", msg);
+                        println!("Server says: {}", msg);
                     }
                     Err(e) => {println!("ERROR: {}", e); break;}
                 }
-
+                
+                let _ = stream.write("Hi Server".as_bytes());
             }
         }
         Err(e) => { panic!("{}", e) }
