@@ -14,7 +14,7 @@ struct GameState {
     
 }
 static mut local_details:[f32; 2] = [0.0, 0.0];
-static players_details:Vec<[f32;2]> = Vec::new();
+static mut players_details:Vec<[f32;2]> = Vec::new();
 
 
 // let main_thread_sender_ptr: Sender<[f32;2]> = None;  
@@ -80,6 +80,7 @@ fn setup_window() -> tetra::Result {
  
 }
 fn main() {
+
     thread::spawn(server_handle);
     
     let _ = setup_window();
@@ -95,29 +96,29 @@ fn server_handle() {
         Ok(mut stream) => {
             println!("Connected to server");
 
-            let mut raw_data:[u8; 128] = [0u8; 128];
+            let mut raw_receive_data:[u8; 128] = [0u8; 128];
             loop {
-                
-                let _ = stream.read(&mut raw_data);
-                let data = std::str::from_utf8(&raw_data);
-                
+                /* RECEIVING DATA FROM SERVER */
+                let _ = stream.read(&mut raw_receive_data);
+                let data = std::str::from_utf8(&raw_receive_data);
                 match data {
                     Ok(msg) => {
-                        // println!("Server says: {}", msg);
+                        // NOTE: Convert str received from server to arr of all players details
+                        let val = string_to_f32arrvec(String::from(msg));
+                        unsafe {
+                            players_details = val.clone();
+                        }
                     }
                     Err(e) => {println!("ERROR: {}", e); break;}
                 }
-                
-                // Get local players details from main-thread
-                let local_player_details:[f32; 2];
-                unsafe {
-                    local_player_details = local_details.clone();
-                }
-                let mut vec:Vec<[f32; 2]> = Vec::new();
-                vec.push(local_player_details);
-                
-                let send_val = f32vec_to_string(vec);
 
+                /* SENDING LOCAL DATA TO SERVER */
+                // Get local players details from main-thread
+                let mut vec:Vec<[f32; 2]> = Vec::new();
+                unsafe {
+                    vec.push(local_details.clone());
+                }
+                let send_val = f32vec_to_string(vec);
                 let _ = stream.write(send_val.as_bytes());
                 
             }
@@ -125,7 +126,6 @@ fn server_handle() {
         Err(e) => { panic!("{}", e) }
     }
 }
-
 
 fn f32vec_to_string(arr: Vec<[f32; 2]>) -> String
 {
@@ -136,5 +136,45 @@ fn f32vec_to_string(arr: Vec<[f32; 2]>) -> String
         ret.push_str(format!("{},{}; ", values[0], values[1]).as_str());
     };
 
+    ret
+}
+
+fn string_to_f32arrvec(data: String) -> Vec<[f32; 2]> {
+    let mut ret:Vec<[f32; 2]> = Vec::new();
+
+    ret.resize(data.matches(";").count(), [0.0; 2]);
+    let mut player_index:usize = 0;
+
+    let mut xy_index = 0;
+    
+    let mut xy_str:[String; 2] = ["".to_string(), "".to_string()];
+
+    for (index, char) in data.chars().enumerate() {
+        if char == ',' {
+            // Seperation of 2 values per player
+            xy_index = 1;
+        }
+        else if char == ';' {
+            // Player Details Finished
+            let mut xy_f32 = [0.0, 0.0];
+            for i in 0..2 {
+                let val = xy_str[i].parse::<f32>();
+                xy_str[i] = "".to_string();                                          // Clear contents out after extracting to 'val'
+                match val {
+                    Ok(v) => { xy_f32[i] = v; }
+                    Err(e) => {panic!("{}", e)}
+                }
+            }
+            ret[player_index] = xy_f32;
+            
+            xy_index = 0; 
+            player_index += 1;
+            
+
+        }
+        else if char.is_numeric() || char == '.'{
+            xy_str[xy_index].push(char);
+        }
+    }
     ret
 }
