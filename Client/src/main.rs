@@ -1,21 +1,24 @@
 use std::net::{TcpStream};
 use std::io::{Read, Write};
+use std::os::raw;
 use std::{str, string, thread};
+use std::time::Duration;
 
 use tetra::{graphics::{mesh::{Mesh, ShapeStyle}, self, Color}, input::{self, Key}, Context, ContextBuilder, State};
 use tetra::math::Vec2;
 
+// SUCCESS KEY = <:>
+
 struct GameState {
-    local_player_position: [f32; 2],
-    global_player_positions: Vec<[f32; 2]>,    
+    local_player_position: [f32; 2],  
     player_shape: Mesh,
     // Thread Communications
  
     
 }
+static mut server_id:i32 = 0;
 static mut local_details:[f32; 2] = [0.0, 0.0];
 static mut players_details:Vec<[f32;2]> = Vec::new();
-
 
 // let main_thread_sender_ptr: Sender<[f32;2]> = None;  
 
@@ -28,7 +31,6 @@ impl GameState {
     fn new(ctx: &mut Context) -> tetra::Result<GameState> {
         Ok(GameState {  
             local_player_position: [0.0; 2],
-            global_player_positions: Vec::new(),
             player_shape: Mesh::circle(ctx, ShapeStyle::Stroke(10.0), Vec2::zero(), 10.0)?,
           
         })   
@@ -40,7 +42,15 @@ impl State for GameState {
         // Cornflower blue, as is tradition
         graphics::clear(ctx, Color::rgb(0.392, 0.584, 0.929));
 
+        // Draw Local Player
         self.player_shape.draw(ctx, Vec2::from(self.local_player_position));
+
+        // Draw Other Players
+        unsafe {
+            for i in players_details.iter() {
+                self.player_shape.draw(ctx, Vec2::from(i.clone()));
+            }
+        }
 
         Ok(())
     }  
@@ -67,6 +77,7 @@ impl State for GameState {
             local_details = self.local_player_position.clone();
         }
 
+
         Ok(())
     }
 }
@@ -80,7 +91,6 @@ fn setup_window() -> tetra::Result {
  
 }
 fn main() {
-
     thread::spawn(server_handle);
     
     let _ = setup_window();
@@ -91,15 +101,35 @@ fn main() {
 // Server Communications
 fn server_handle() {
     let stream = TcpStream::connect("127.0.0.1:80");
-
+    
     match stream {
         Ok(mut stream) => {
-            println!("Connected to server");
-
             let mut raw_receive_data:[u8; 128] = [0u8; 128];
+            let mut server_id_str = "";
+            // Receiving necessary items from server [Id]
+            // loop {
+            //     let _ = stream.read(&mut raw_receive_data);
+            //     let data = std::str::from_utf8(&raw_receive_data);
+            //     match data {
+            //         Ok(r) => {
+            //             server_id_str = r;
+
+            //             let _ = stream.write("<:>".as_bytes());
+            //             println!("Connected to server");
+            //             break;
+            //         }
+            //                 //Err(e) => {println!("{}, Value got is: {}", e, r);}            
+            //         Err(e) => {println!("{}", e);}
+            //         }
+            // }
+            
+            
             loop {
                 /* RECEIVING DATA FROM SERVER */
+            //    let peek = stream.peek()
+                //let _ = stream.read(&mut raw_receive_data);                
                 let _ = stream.read(&mut raw_receive_data);
+                
                 let data = std::str::from_utf8(&raw_receive_data);
                 match data {
                     Ok(msg) => {
@@ -114,11 +144,13 @@ fn server_handle() {
 
                 /* SENDING LOCAL DATA TO SERVER */
                 // Get local players details from main-thread
-                let mut vec:Vec<[f32; 2]> = Vec::new();
+                let mut arr:[f32; 2] = [0.0, 0.0];
                 unsafe {
-                    vec.push(local_details.clone());
+                    arr = local_details.clone();
                 }
-                let send_val = f32vec_to_string(vec);
+                // Doesn't need ot be Vec of [f32;2], just convert local players [f32;2] to string
+                let send_val = get_local_details_str(arr);
+                //println!("sending: {}", send_val);
                 let _ = stream.write(send_val.as_bytes());
                 
             }
@@ -138,6 +170,12 @@ fn f32vec_to_string(arr: Vec<[f32; 2]>) -> String
 
     ret
 }
+fn get_local_details_str(arr: [f32;2]) -> String {
+    let mut ret:String = "".to_string();
+    ret = format!("{},{};~ ", arr[0], arr[1]);
+    ret    
+}
+
 
 fn string_to_f32arrvec(data: String) -> Vec<[f32; 2]> {
     let mut ret:Vec<[f32; 2]> = Vec::new();
@@ -162,7 +200,7 @@ fn string_to_f32arrvec(data: String) -> Vec<[f32; 2]> {
                 xy_str[i] = "".to_string();                                          // Clear contents out after extracting to 'val'
                 match val {
                     Ok(v) => { xy_f32[i] = v; }
-                    Err(e) => {panic!("{}", e)}
+                    Err(e) => {println!("{} - data: {}", e, data)}
                 }
             }
             ret[player_index] = xy_f32;
@@ -173,6 +211,8 @@ fn string_to_f32arrvec(data: String) -> Vec<[f32; 2]> {
 
         }
         else if char.is_numeric() || char == '.'{
+             
+
             xy_str[xy_index].push(char);
         }
     }
