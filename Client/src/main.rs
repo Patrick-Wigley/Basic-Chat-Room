@@ -106,23 +106,6 @@ fn server_handle() {
         Ok(mut stream) => {
             let mut raw_receive_data:[u8; 128] = [0u8; 128];
             let mut server_id_str = "";
-            // Receiving necessary items from server [Id]
-            // loop {
-            //     let _ = stream.read(&mut raw_receive_data);
-            //     let data = std::str::from_utf8(&raw_receive_data);
-            //     match data {
-            //         Ok(r) => {
-            //             server_id_str = r;
-
-            //             let _ = stream.write("<:>".as_bytes());
-            //             println!("Connected to server");
-            //             break;
-            //         }
-            //                 //Err(e) => {println!("{}, Value got is: {}", e, r);}            
-            //         Err(e) => {println!("{}", e);}
-            //         }
-            // }
-            
             
             loop {
                 /* RECEIVING DATA FROM SERVER */
@@ -211,8 +194,6 @@ fn string_to_f32arrvec(data: String) -> Vec<[f32; 2]> {
 
         }
         else if char.is_numeric() || char == '.'{
-             
-
             xy_str[xy_index].push(char);
         }
     }

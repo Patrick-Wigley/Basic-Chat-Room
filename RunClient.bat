@@ -1,2 +1,2 @@
-cd ./Client
-cargo run
+cd ./Client/target/release
+Client.exe

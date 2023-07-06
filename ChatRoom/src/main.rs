@@ -21,9 +21,12 @@ fn handle_connection(mut client: TcpStream) {
     loop {        
         let mut send_val:String;
         unsafe {
-            send_val = stringvec_to_string(players_details.clone());
+            let mut other_players_details:Vec<String> = players_details.clone();
+            other_players_details.remove(players_id);
+            send_val = stringvec_to_string(other_players_details.clone());
         }
-
+        
+        println!("Players val: {:?}", send_val);
         // Add error handle - (Result) for when client disconnects
         let _ = client.write(send_val.as_bytes());
        // println!("Sending: {}", send_val);
@@ -37,7 +40,6 @@ fn handle_connection(mut client: TcpStream) {
                 unsafe {
                     players_details[players_id] =  msg[0..(msg.find("~").unwrap())].to_string(); //[0..msg.len() - msg.find("~").unwrap()].to_string();
                     
-                    println!("Players val: {:?}", players_details);
                 }
             }
             Err(e) => {
