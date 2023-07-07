@@ -2,44 +2,64 @@ use std::net::TcpStream;
 use std::io::{Read, Write};
 use std::thread;
 
-use tetra::{graphics::{mesh::{Mesh, ShapeStyle}, self, Color}, input::{self, Key}, Context, ContextBuilder, State};
-use tetra::math::Vec2;
+use tetra::{graphics::{mesh::{Mesh, ShapeStyle, GeometryBuilder}, self, Color, Rectangle}, input::{self, Key}, Context, ContextBuilder, State};
+use tetra::math::{Vec2, Rect};
 
 
 /* GLOBALS & CONSTS */
 static mut LOCAL_DETAILS:[f32; 2] = [0.0, 0.0];
 static mut PLAYERS_DETAILS:Vec<[f32;2]> = Vec::new();
 const MOVEMENT_SPEED: f32 = 2.0;
+const SCREEN_SIZE:[i32; 2] = [900, 720]; 
 
 /* TETRA */
 struct GameState {
+    map: Mesh,
+    map_rect: Rectangle<f32>,
     local_player_position: [f32; 2],  
-    player_shape: Mesh,    
+    player_shape: Mesh,  
+    scroll: [f32; 2] 
 }
 impl GameState {
     fn new(ctx: &mut Context) -> tetra::Result<GameState> {
+        let maps_rectangle = Rectangle::new(100.0, 100.0, 2000.0, 2000.0);
+        
+        
         Ok(GameState {  
+            map: GeometryBuilder::new()
+            .set_color(Color::rgb(0.4, 0.6, 0.4))
+            .rectangle(ShapeStyle::Fill, maps_rectangle)?
+            .build_mesh(ctx)?,
+                    
+            map_rect: maps_rectangle,
             local_player_position: [0.0; 2],
             player_shape: Mesh::circle(ctx, ShapeStyle::Stroke(10.0), Vec2::zero(), 10.0)?,
+            scroll: [0.0; 2]
         })   
     }
 }
 impl State for GameState {
     fn draw(&mut self, ctx: &mut Context) -> tetra::Result {
-        graphics::clear(ctx, Color::rgb(0.392, 0.584, 0.929));
+        graphics::clear(ctx, Color::rgb(0.43, 0.24, 0.51));
+        
+        self.map.draw(ctx, Vec2::from([100.0 - self.scroll[0], 100.0 - self.scroll[1]]));
 
         // Draw Local Player
-        self.player_shape.draw(ctx, Vec2::from(self.local_player_position));
+        self.player_shape.draw(ctx, Vec2::from([self.local_player_position[0] - self.scroll[0], self.local_player_position[1] - self.scroll[1]]));
 
         // Draw Other Players
         unsafe {
             for i in PLAYERS_DETAILS.iter() {
-                self.player_shape.draw(ctx, Vec2::from(i.clone()));
+                let xy:Vec2<f32> = Vec2::from(i.clone());
+                self.player_shape.draw(ctx, Vec2::from([xy.x - self.scroll[0], xy.y - self.scroll[1]]));
             }
         }
         Ok(())
     }  
     fn update(&mut self, ctx: &mut Context) -> tetra::Result {
+        self.scroll[0] += ((self.local_player_position[0] - self.scroll[0]) - (SCREEN_SIZE[0] as f32/2.0) as f32)/10.0;
+        self.scroll[1] += ((self.local_player_position[1] - self.scroll[1]) - (SCREEN_SIZE[1] as f32/2.0))/10.0;
+        
         let mut speed:f32 = 0.0;
         if input::is_key_down(ctx, Key::LeftShift) {
             speed = 2.0;
@@ -57,6 +77,20 @@ impl State for GameState {
             self.local_player_position[0] += MOVEMENT_SPEED + speed;
         }
 
+        // Arena Collision Detection
+        if self.local_player_position[0] <= self.map_rect.x {
+            self.local_player_position[0] = self.map_rect.x
+        }
+        if self.local_player_position[1] <= self.map_rect.y {
+            self.local_player_position[1] = self.map_rect.y
+        }
+        if self.local_player_position[0] >= (self.map_rect.x + self.map_rect.width) {
+            self.local_player_position[0] = (self.map_rect.x + self.map_rect.width)
+        }
+        if self.local_player_position[1] >= (self.map_rect.y + self.map_rect.height) {
+            self.local_player_position[1] = (self.map_rect.y + self.map_rect.height)
+        }
+
         // Setting global var to be used in 'server_handle' thread
         unsafe {
             LOCAL_DETAILS = self.local_player_position.clone();
@@ -67,7 +101,7 @@ impl State for GameState {
 }
 /// Returns built tetra application
 fn setup_window() -> tetra::Result {
-    ContextBuilder::new("Online Squares!", 1280, 720)
+    ContextBuilder::new("Online Squares!", SCREEN_SIZE[0], SCREEN_SIZE[1])
         .build()?
         .run(GameState::new)    
 }
