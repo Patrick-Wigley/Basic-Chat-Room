@@ -1,18 +1,17 @@
 use std::{net::{TcpListener, TcpStream}, thread, io::{Write, Read, Split}};
 use std::time::Duration;
 
-static mut players_details:Vec<String> = Vec::new();
+static mut PLAYERS_DETAILS:Vec<String> = Vec::new();
 const MAX_USERS:usize = 5;
-static mut active_players_count:usize = 0;
-// SUCCESS KEY = <:>
+static mut ACTIVE_PLAYERS_COUNT:usize = 0;
 
 
 fn handle_connection(mut client: TcpStream) {
     let players_id:usize;
     unsafe {
-        players_id = active_players_count;
-        players_details[players_id] = format!("7,0;").to_string();
-        active_players_count += 1;
+        players_id = ACTIVE_PLAYERS_COUNT;
+        PLAYERS_DETAILS[players_id] = format!("7,0;").to_string();
+        ACTIVE_PLAYERS_COUNT += 1;
     }
     println!("New connection");
     // This is a buffer for the bytes obtained/read throughout this stream
@@ -21,12 +20,12 @@ fn handle_connection(mut client: TcpStream) {
     loop {        
         let mut send_val:String;
         unsafe {
-            let mut other_players_details:Vec<String> = players_details.clone();
+            let mut other_players_details:Vec<String> = PLAYERS_DETAILS.clone();
             other_players_details.remove(players_id);
             send_val = stringvec_to_string(other_players_details.clone());
         }
         
-        println!("Players val: {:?}", send_val);
+      //  println!("Players val: {:?}", send_val);
         // Add error handle - (Result) for when client disconnects
         let _ = client.write(send_val.as_bytes());
        // println!("Sending: {}", send_val);
@@ -38,7 +37,7 @@ fn handle_connection(mut client: TcpStream) {
         match received_data_unpacked {
             Ok(msg) => {
                 unsafe {
-                    players_details[players_id] =  msg[0..(msg.find("~").unwrap())].to_string(); //[0..msg.len() - msg.find("~").unwrap()].to_string();
+                    PLAYERS_DETAILS[players_id] =  msg[0..(msg.find("~").unwrap())].to_string(); //[0..msg.len() - msg.find("~").unwrap()].to_string();
                     
                 }
             }
@@ -47,13 +46,12 @@ fn handle_connection(mut client: TcpStream) {
             }
         }
     }
-    
 }
 
 fn main() {
     //For debbugi temp
     unsafe {
-        players_details.resize(MAX_USERS, "1,0;".to_string());
+        PLAYERS_DETAILS.resize(MAX_USERS, "1,0;".to_string());
     }
     
     
