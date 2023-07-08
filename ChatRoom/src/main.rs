@@ -1,13 +1,19 @@
 use std::{net::{TcpListener, TcpStream}, thread, io::{Write, Read, Split}};
 use std::time::Duration;
 
-static mut PLAYERS_DETAILS:Vec<String> = Vec::new();
+#[derive(Clone, Debug)]
+struct PlayerDetails {
+    position: String,
+    messages: Vec<String>
+}
+
+static mut PLAYERS_DETAILS:Vec<PlayerDetails> = Vec::new();
 const MAX_USERS:usize = 5;
 static mut ACTIVE_PLAYERS_COUNT:usize = 0;
 
 
 // KEY:
-// () - Player spot EMPTY
+// | - Player spot EMPTY
 // ~ - End of players details
 // ; - END of players string sent over through stream
 
@@ -16,7 +22,7 @@ fn handle_connection(mut client: TcpStream) {
     let mut players_id:usize = usize::MAX;
     unsafe {
         for (index, val) in PLAYERS_DETAILS.iter().enumerate(){
-            if val == "();" {
+            if val.position == "|;" {
                 // Spot Empty
                 // Bring index back down to ZERO range
                 players_id = index;
@@ -26,7 +32,7 @@ fn handle_connection(mut client: TcpStream) {
             panic!("[SERVER ERROR]: Cannot find empty spot for player. One of the previous player 
                 strings may have become corrupt? - {:?}", PLAYERS_DETAILS); 
         }
-        PLAYERS_DETAILS[players_id] = format!("7,0;").to_string();
+        PLAYERS_DETAILS[players_id].position = format!("7,0;").to_string();
         ACTIVE_PLAYERS_COUNT += 1;
     }
     println!("New connection: Player spot: {}", players_id);
@@ -36,9 +42,9 @@ fn handle_connection(mut client: TcpStream) {
     loop {        
         let send_val:String;
         unsafe {
-            let mut other_players_details:Vec<String> = PLAYERS_DETAILS.clone();
+            let mut other_players_details:Vec<PlayerDetails> = PLAYERS_DETAILS.clone();
             other_players_details.remove(players_id);
-            send_val = stringvec_to_string(other_players_details.clone());
+            send_val = stringvec_to_string(other_players_details);
         }
         
       //  println!("Players val: {:?}", send_val);
@@ -52,7 +58,7 @@ fn handle_connection(mut client: TcpStream) {
                 println!("[SERVER]: Player Left: {}", players_id);
                 unsafe {
                     ACTIVE_PLAYERS_COUNT -= 1;
-                    PLAYERS_DETAILS[players_id] = "();".to_string();
+                    PLAYERS_DETAILS[players_id].position = "|;".to_string();
                     break;
                 }
             }
@@ -69,13 +75,13 @@ fn handle_connection(mut client: TcpStream) {
                     println!("[SERVER]: Player Left: {}", players_id);
                     unsafe {
                         ACTIVE_PLAYERS_COUNT -= 1;
-                        PLAYERS_DETAILS[players_id] = "();".to_string();
+                        PLAYERS_DETAILS[players_id].position = "|;".to_string();
                     }
                     break;
                 }
 
                 unsafe {
-                    PLAYERS_DETAILS[players_id] = msg[0..(msg.find("~").unwrap())].to_string(); //[0..msg.len() - msg.find("~").unwrap()].to_string();
+                    PLAYERS_DETAILS[players_id].position = msg[0..(msg.find("~").unwrap())].to_string(); //[0..msg.len() - msg.find("~").unwrap()].to_string();
                 }
             }
             Err(e) => {
@@ -88,7 +94,7 @@ fn handle_connection(mut client: TcpStream) {
 fn main() {
     //For debbugi temp
     unsafe {
-        PLAYERS_DETAILS.resize(MAX_USERS, "();".to_string());
+        PLAYERS_DETAILS.resize(MAX_USERS, PlayerDetails { position: ("|;".to_string()), messages: (Vec::new()) });
     }
         
     let listener_result = TcpListener::bind("127.0.0.1:80");
@@ -101,7 +107,7 @@ fn main() {
                 match incoming_stream {
                     Ok(s) => { 
                         let current_active_players_count: usize;
-                        let current_players_details: Vec<String>;
+                        let current_players_details: Vec<PlayerDetails>;
                         unsafe {
                             current_active_players_count = ACTIVE_PLAYERS_COUNT.clone();
                             current_players_details = PLAYERS_DETAILS.clone();
@@ -127,13 +133,12 @@ fn main() {
     }
 }
 /// Converts Vector of player details to one string for transmission
-fn stringvec_to_string(arr:Vec<String>) -> String {
+fn stringvec_to_string(arr:Vec<PlayerDetails>) -> String {
    
     let mut ret:String = "#".to_string();
-    for i in arr.iter() {
+    for player in arr.iter() {
         // Add ID "{id}x,y;"
-        ret.push_str(format!("{}", i).as_str());
-  
+        ret.push_str(format!("{}", player.position).as_str());
     }
 
     ret

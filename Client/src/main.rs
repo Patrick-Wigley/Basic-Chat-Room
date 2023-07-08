@@ -181,6 +181,8 @@ fn get_players_from_string(data: String) -> Vec<[f32; 2]> {
     
     let mut xy_str:[String; 2] = ["".to_string(), "".to_string()];
 
+    let mut player_invalid:bool = false;
+
     for char in data.chars() {
         if char == ',' {
             // Seperation of 2 values (X,Y)
@@ -189,23 +191,30 @@ fn get_players_from_string(data: String) -> Vec<[f32; 2]> {
         else if char == ';' {
             // At this point, 'xy_str' has collected the players details
             let mut xy_f32 = [0.0, 0.0];
-            for i in 0..2 {
-                let val = xy_str[i].parse::<f32>();
-                xy_str[i] = "".to_string();                                     // Clear contents out for next player iteration
-                match val {
-                    Ok(v) => { xy_f32[i] = v; }
-                    Err(_e) => { 
-                        // End of string seems to be corrupted sometimes? - Returns the processed data
-                        return ret;
+            
+            if !player_invalid {
+                for i in 0..2 {
+                    let val = xy_str[i].parse::<f32>();
+                    xy_str[i] = "".to_string();                                     // Clear contents out for next player iteration
+                    match val {
+                        Ok(v) => { xy_f32[i] = v; }
+                        Err(e) => { 
+                            // End of string seems to be corrupted - Returns the processed data
+                            println!("{} - {:?}", e, xy_str);
+                        }
                     }
                 }
             }
             ret[player_index] = xy_f32;
             xy_index = 0; 
             player_index += 1;
+            player_invalid = false;
         }
         else if char.is_numeric() || char == '.' || char == '-'{
             xy_str[xy_index].push(char);
+        }
+        else if char == '|' {
+            player_invalid = true;
         }
     }
     ret
