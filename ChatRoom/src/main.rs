@@ -7,6 +7,8 @@ struct PlayerDetails {
     messages: Vec<String>
 }
 
+const DEBUG:bool = false;
+
 static mut PLAYERS_DETAILS:Vec<PlayerDetails> = Vec::new();
 const MAX_USERS:usize = 5;
 static mut ACTIVE_PLAYERS_COUNT:usize = 0;
@@ -35,7 +37,7 @@ fn handle_connection(mut client: TcpStream) {
         PLAYERS_DETAILS[players_id].position = format!("7,0;").to_string();
         ACTIVE_PLAYERS_COUNT += 1;
     }
-    println!("New connection: Player spot: {}", players_id);
+    println!("[SERVER]: New connection: {}", players_id);
     // This is a buffer for the bytes obtained/read throughout this stream
     let mut receive_data:[u8; 50] = [0u8; 50];
     
@@ -54,13 +56,9 @@ fn handle_connection(mut client: TcpStream) {
             Ok(_r) => {}
             Err(e) => {
                 // Connection is no longer existent - (Local may have abruptly lost connection or forcibly left)
-                println!("[SERVER ERROR]: {}", e);
-                println!("[SERVER]: Player Left: {}", players_id);
-                unsafe {
-                    ACTIVE_PLAYERS_COUNT -= 1;
-                    PLAYERS_DETAILS[players_id].position = "|;".to_string();
-                    break;
-                }
+                if DEBUG {println!("[SERVER ERROR]: {}", e);}
+                handle_disconnect(players_id);
+                break;
             }
         }
 
@@ -72,11 +70,7 @@ fn handle_connection(mut client: TcpStream) {
             Ok(msg) => {
                 if msg.contains("(DISCONNECT)") {
                     // Player is disconnecting, handle this and make room for other connections to take this place
-                    println!("[SERVER]: Player Left: {}", players_id);
-                    unsafe {
-                        ACTIVE_PLAYERS_COUNT -= 1;
-                        PLAYERS_DETAILS[players_id].position = "|;".to_string();
-                    }
+                    handle_disconnect(players_id);
                     break;
                 }
 
@@ -134,14 +128,20 @@ fn main() {
 }
 /// Converts Vector of player details to one string for transmission
 fn stringvec_to_string(arr:Vec<PlayerDetails>) -> String {
-   
     let mut ret:String = "#".to_string();
     for player in arr.iter() {
         // Add ID "{id}x,y;"
         ret.push_str(format!("{}", player.position).as_str());
     }
-
     ret
+}
+/// Executes on disconnection of a client
+fn handle_disconnect(player_id:usize) {
+    println!("[SERVER]: Connection lost: {}", player_id);
+    unsafe {
+        ACTIVE_PLAYERS_COUNT -= 1;
+        PLAYERS_DETAILS[player_id].position = "|;".to_string();
+    };
 }
 
 // fn f32vec_to_string(arr: Vec<[f32; 2]>) -> String
