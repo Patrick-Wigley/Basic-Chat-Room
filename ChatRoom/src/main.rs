@@ -6,19 +6,35 @@ const MAX_USERS:usize = 5;
 static mut ACTIVE_PLAYERS_COUNT:usize = 0;
 
 
+// KEY:
+// () - Player spot EMPTY
+// ~ - End of players details
+// ; - END of players string sent over through stream
+
+
 fn handle_connection(mut client: TcpStream) {
-    let players_id:usize;
+    let mut players_id:usize = usize::MAX;
     unsafe {
-        players_id = ACTIVE_PLAYERS_COUNT;
+        for (index, val) in PLAYERS_DETAILS.iter().enumerate(){
+            if val == "();" {
+                // Spot Empty
+                // Bring index back down to ZERO range
+                players_id = index;
+            }
+        }
+        if players_id == usize::MAX {
+            panic!("[SERVER ERROR]: Cannot find empty spot for player. One of the previous player 
+                strings may have become corrupt? - {:?}", PLAYERS_DETAILS); 
+        }
         PLAYERS_DETAILS[players_id] = format!("7,0;").to_string();
         ACTIVE_PLAYERS_COUNT += 1;
     }
-    println!("New connection");
+    println!("New connection: Player spot: {}", players_id);
     // This is a buffer for the bytes obtained/read throughout this stream
     let mut receive_data:[u8; 50] = [0u8; 50];
     
     loop {        
-        let mut send_val:String;
+        let send_val:String;
         unsafe {
             let mut other_players_details:Vec<String> = PLAYERS_DETAILS.clone();
             other_players_details.remove(players_id);
@@ -27,18 +43,39 @@ fn handle_connection(mut client: TcpStream) {
         
       //  println!("Players val: {:?}", send_val);
         // Add error handle - (Result) for when client disconnects
-        let _ = client.write(send_val.as_bytes());
-       // println!("Sending: {}", send_val);
-    
+        let write_result = client.write(send_val.as_bytes());
+        match write_result {
+            Ok(_r) => {}
+            Err(e) => {
+                // Connection is no longer existent - (Local may have abruptly lost connection or forcibly left)
+                println!("[SERVER ERROR]: {}", e);
+                println!("[SERVER]: Player Left: {}", players_id);
+                unsafe {
+                    ACTIVE_PLAYERS_COUNT -= 1;
+                    PLAYERS_DETAILS[players_id] = "();".to_string();
+                    break;
+                }
+            }
+        }
+
         // Read clients details
         let _ = client.read(&mut receive_data);
         let received_data_unpacked = std::str::from_utf8(&receive_data);
         
         match received_data_unpacked {
             Ok(msg) => {
+                if msg.contains("(DISCONNECT)") {
+                    // Player is disconnecting, handle this and make room for other connections to take this place
+                    println!("[SERVER]: Player Left: {}", players_id);
+                    unsafe {
+                        ACTIVE_PLAYERS_COUNT -= 1;
+                        PLAYERS_DETAILS[players_id] = "();".to_string();
+                    }
+                    break;
+                }
+
                 unsafe {
-                    PLAYERS_DETAILS[players_id] =  msg[0..(msg.find("~").unwrap())].to_string(); //[0..msg.len() - msg.find("~").unwrap()].to_string();
-                    
+                    PLAYERS_DETAILS[players_id] = msg[0..(msg.find("~").unwrap())].to_string(); //[0..msg.len() - msg.find("~").unwrap()].to_string();
                 }
             }
             Err(e) => {
@@ -51,10 +88,9 @@ fn handle_connection(mut client: TcpStream) {
 fn main() {
     //For debbugi temp
     unsafe {
-        PLAYERS_DETAILS.resize(MAX_USERS, "1,0;".to_string());
+        PLAYERS_DETAILS.resize(MAX_USERS, "();".to_string());
     }
-    
-    
+        
     let listener_result = TcpListener::bind("127.0.0.1:80");
     
 
@@ -64,9 +100,21 @@ fn main() {
             for incoming_stream in listener.incoming() {
                 match incoming_stream {
                     Ok(s) => { 
-                        thread::spawn(|| {
-                            handle_connection(s);
-                        });
+                        let current_active_players_count: usize;
+                        let current_players_details: Vec<String>;
+                        unsafe {
+                            current_active_players_count = ACTIVE_PLAYERS_COUNT.clone();
+                            current_players_details = PLAYERS_DETAILS.clone();
+                        }
+                        if current_active_players_count >= current_players_details.len() {
+                            println!("Client attempted to join but lobby has reached maximum limit");
+                        } else {
+                            // Add new connection as there's available space
+                            thread::spawn(|| {
+                                handle_connection(s);
+                            });
+                        }
+
                       
                     },
                     Err(e) => { println!("[SERVER]: ERROR DURING CONNECTION - {}", e) }

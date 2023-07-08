@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use std::thread;
 
 use tetra::{graphics::{mesh::{Mesh, ShapeStyle, GeometryBuilder}, self, Color, Rectangle}, input::{self, Key}, Context, ContextBuilder, State};
-use tetra::math::{Vec2, Rect};
+use tetra::math::{Vec2};
 
 
 /* GLOBALS & CONSTS */
@@ -11,6 +11,8 @@ static mut LOCAL_DETAILS:[f32; 2] = [0.0, 0.0];
 static mut PLAYERS_DETAILS:Vec<[f32;2]> = Vec::new();
 const MOVEMENT_SPEED: f32 = 2.0;
 const SCREEN_SIZE:[i32; 2] = [900, 720]; 
+
+static mut LOCAL_DESIRES_CONNECTED:bool = true;
 
 /* TETRA */
 struct GameState {
@@ -77,6 +79,12 @@ impl State for GameState {
             self.local_player_position[0] += MOVEMENT_SPEED + speed;
         }
 
+        if input::is_key_down(ctx, Key::Escape) {
+            unsafe {
+                LOCAL_DESIRES_CONNECTED = false;
+            }
+        }
+
         // Arena Collision Detection
         if self.local_player_position[0] <= self.map_rect.x {
             self.local_player_position[0] = self.map_rect.x
@@ -137,9 +145,15 @@ fn server_handle() {
                 /* SENDING LOCAL DETAILS TO SERVER - (X,Y Position) */
                 let send_val:String;
                 unsafe {
+                    if !LOCAL_DESIRES_CONNECTED {
+                        // Leave server
+                        let _ = stream.write("(DISCONNECT)".as_bytes());
+                        break;
+                    }
                     send_val = get_string_from_local_details(LOCAL_DETAILS.clone());
                 }
                 let _ = stream.write(send_val.as_bytes());
+                
             }
         }
         Err(e) => { 
