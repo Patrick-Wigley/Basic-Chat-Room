@@ -8,12 +8,13 @@ use tetra::math::{Vec2};
 
 #[derive(Clone, Debug)]
 struct PlayerDetails {
+    name: String,
     position: [f32; 2],
     message: String
 }
 
 /* GLOBALS & CONSTS */
-static mut LOCAL_DETAILS:PlayerDetails = PlayerDetails {position: ([0.0, 0.0]), message: (String::new())};
+static mut LOCAL_DETAILS:PlayerDetails = PlayerDetails {name: (String::new()), position: ([0.0, 0.0]), message: (String::new())};
 static mut PLAYERS_DETAILS:Vec<PlayerDetails> = Vec::new();
 const MOVEMENT_SPEED: f32 = 2.0;
 const SCREEN_SIZE:[i32; 2] = [900, 720]; 
@@ -178,7 +179,8 @@ fn server_handle() {
 /// Prepares string which will be sent over to the server \
 /// Returns prepared String
 fn get_string_from_local_details(local_player_details: PlayerDetails) -> String {
-    format!("{},{} :{};~ ", 
+    format!("{}:{},{}:{};~ ",
+    local_player_details.name, 
     local_player_details.position[0], local_player_details.position[1], 
     local_player_details.message
     )
@@ -189,8 +191,9 @@ fn get_players_from_string(data: String) -> Vec<PlayerDetails> {
     // EXAMPLE OF A MESSAGE - "12.1,51.2 : 'a message'; '61.9,21.0' : 'Hello World'; |;"
     #[derive(PartialEq)]
     enum ValueIndices {
-        POSITION=0,
-        MESSAGE=1, 
+        NAME=0,
+        POSITION=1,
+        MESSAGE=2, 
     }
     
     let mut ret:Vec<PlayerDetails> = Vec::new();
@@ -201,17 +204,18 @@ fn get_players_from_string(data: String) -> Vec<PlayerDetails> {
     for val in player_values.into_iter() {
         if !val.contains("|") {
             // Player slot is active
-            let mut player_details = PlayerDetails { position: ([-1000.0, -1000.0]), message: ("".to_string()) };
-    //        println!("Player found: {}", val);
+            let mut player_details = PlayerDetails {name: ("[Unknown User]".to_string()), position: ([-1000.0, -1000.0]), message: ("".to_string()) };
+            // println!("Player found: {}", val);
             let values = val.split(":");
             
             for (value_index, j) in values.into_iter().enumerate() {
                 //println!("Val extracted: {}", j);
                 match value_index {
                     // Handle each value here: 
-                    0 => {player_details.position = extract_player_position(j.trim().to_string());}
-                    1 => {player_details.message = j.to_string();}
-                    _ => {panic!("Too many values during extraction of players data?");}
+                    0 => {player_details.name = j.to_string();}
+                    1 => {player_details.position = extract_player_position(j.trim().to_string());}
+                    2 => {player_details.message = j.to_string();}
+                    _ => {panic!("Too many values during extraction of players data? - {}", data);}
                 }   
             }
             ret.push(player_details);

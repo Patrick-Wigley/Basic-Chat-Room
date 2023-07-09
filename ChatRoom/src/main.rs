@@ -2,7 +2,7 @@ use std::{net::{TcpListener, TcpStream}, thread, io::{Write, Read, Split}};
 use std::time::Duration;
 
 
-const DEBUG:bool = false;
+const DEBUG:bool = true;
 
 static mut PLAYERS_DETAILS:Vec<String> = Vec::new();
 const MAX_USERS:usize = 5;
@@ -34,15 +34,12 @@ fn handle_connection(mut client: TcpStream) {
             panic!("[SERVER ERROR]: Cannot find empty spot for player. One of the previous player 
                 strings may have become corrupt? - {:?}", PLAYERS_DETAILS); 
         }
-        PLAYERS_DETAILS[players_id] = format!("0,0 : ''").to_string();
         ACTIVE_PLAYERS_COUNT += 1;
     }
     println!("[SERVER]: New connection: {}", players_id);
-    
-
-
     // This is a buffer for the bytes obtained/read throughout this stream
     let mut receive_data:[u8; 50] = [0u8; 50];
+
     loop {        
         // Send ALL Clients details
         let send_val:String;
@@ -50,11 +47,7 @@ fn handle_connection(mut client: TcpStream) {
             let mut other_players_details:Vec<String> = PLAYERS_DETAILS.clone();
             other_players_details.remove(players_id);
             send_val = stringvec_to_string(other_players_details);
-            // Clear players message data - Do this on client side
-            //PLAYERS_DETAILS[players_id].latest_message = "".to_string();
         }
-        
-
         let write_result = client.write(send_val.as_bytes());
         match write_result {
             Ok(_r) => {}
