@@ -6,9 +6,15 @@ use tetra::{graphics::{mesh::{Mesh, ShapeStyle, GeometryBuilder}, self, Color, R
 use tetra::math::{Vec2};
 
 
+#[derive(Clone, Debug)]
+struct PlayerDetails {
+    position: [f32; 2],
+    message: String
+}
+
 /* GLOBALS & CONSTS */
-static mut LOCAL_DETAILS:[f32; 2] = [0.0, 0.0];
-static mut PLAYERS_DETAILS:Vec<[f32;2]> = Vec::new();
+static mut LOCAL_DETAILS:PlayerDetails = PlayerDetails {position: ([0.0, 0.0]), message: (String::new())};
+static mut PLAYERS_DETAILS:Vec<PlayerDetails> = Vec::new();
 const MOVEMENT_SPEED: f32 = 2.0;
 const SCREEN_SIZE:[i32; 2] = [900, 720]; 
 
@@ -44,16 +50,19 @@ impl State for GameState {
     fn draw(&mut self, ctx: &mut Context) -> tetra::Result {
         graphics::clear(ctx, Color::rgb(0.43, 0.24, 0.51));
         
-        self.map.draw(ctx, Vec2::from([100.0 - self.scroll[0], 100.0 - self.scroll[1]]));
+        self.map.draw(ctx, Vec2::from([0.0 - self.scroll[0], 0.0 - self.scroll[1]]));
 
         // Draw Local Player
         self.player_shape.draw(ctx, Vec2::from([self.local_player_position[0] - self.scroll[0], self.local_player_position[1] - self.scroll[1]]));
 
         // Draw Other Players
         unsafe {
-            for i in PLAYERS_DETAILS.iter() {
-                let xy:Vec2<f32> = Vec2::from(i.clone());
+            for player in PLAYERS_DETAILS.iter() {
+                let xy:Vec2<f32> = Vec2::from(player.clone().position);
                 self.player_shape.draw(ctx, Vec2::from([xy.x - self.scroll[0], xy.y - self.scroll[1]]));
+                if player.message != "" {
+                    println!("[SERVER] Message: {}", player.message);
+                }
             }
         }
         Ok(())
@@ -101,7 +110,7 @@ impl State for GameState {
 
         // Setting global var to be used in 'server_handle' thread
         unsafe {
-            LOCAL_DETAILS = self.local_player_position.clone();
+            LOCAL_DETAILS.position = self.local_player_position.clone();
         }
 
         Ok(())
@@ -136,7 +145,8 @@ fn server_handle() {
                 match data {
                     Ok(msg) => {
                         unsafe {
-                            PLAYERS_DETAILS = get_players_from_string(String::from(msg));
+                            let actual_data = msg[0..(msg.find("~").unwrap())].to_string();
+                            PLAYERS_DETAILS = get_players_from_string(actual_data);
                         }
                     }
                     Err(e) => {println!("[ERROR]: {}", e);}
@@ -151,6 +161,8 @@ fn server_handle() {
                         break;
                     }
                     send_val = get_string_from_local_details(LOCAL_DETAILS.clone());
+                    // Clear message content
+                    LOCAL_DETAILS.message = "".to_string();
                 }
                 let _ = stream.write(send_val.as_bytes());
                 
@@ -165,57 +177,166 @@ fn server_handle() {
 /* SUB FUNCTIONS USED FOR 'server_handle' */
 /// Prepares string which will be sent over to the server \
 /// Returns prepared String
-fn get_string_from_local_details(arr: [f32;2]) -> String {
-    format!("{},{};~ ", arr[0], arr[1])      
+fn get_string_from_local_details(local_player_details: PlayerDetails) -> String {
+    format!("{},{} :{};~ ", 
+    local_player_details.position[0], local_player_details.position[1], 
+    local_player_details.message
+    )
 }
 /// Gathers each players details from string received & processes it to Vec<[f32; 2]> \
 /// Returns processed Vector
-fn get_players_from_string(data: String) -> Vec<[f32; 2]> {
-    let mut ret:Vec<[f32; 2]> = Vec::new();
-
-    ret.resize(data.matches(";").count(), [0.0; 2]);
-
-    let mut player_index:usize = 0;
-
-    let mut xy_index = 0;
+fn get_players_from_string(data: String) -> Vec<PlayerDetails> {
+    // EXAMPLE OF A MESSAGE - "12.1,51.2 : 'a message'; '61.9,21.0' : 'Hello World'; |;"
+    #[derive(PartialEq)]
+    enum ValueIndices {
+        POSITION=0,
+        MESSAGE=1, 
+    }
     
-    let mut xy_str:[String; 2] = ["".to_string(), "".to_string()];
+    let mut ret:Vec<PlayerDetails> = Vec::new();
 
-    let mut player_invalid:bool = false;
-
-    for char in data.chars() {
-        if char == ',' {
-            // Seperation of 2 values (X,Y)
-            xy_index = 1;
-        }
-        else if char == ';' {
-            // At this point, 'xy_str' has collected the players details
-            let mut xy_f32 = [0.0, 0.0];
+    let player_values = data.split(";");
+    //println!("{:?}", player_values);
+    
+    for val in player_values.into_iter() {
+        if !val.contains("|") {
+            // Player slot is active
+            let mut player_details = PlayerDetails { position: ([-1000.0, -1000.0]), message: ("".to_string()) };
+    //        println!("Player found: {}", val);
+            let values = val.split(":");
             
-            if !player_invalid {
-                for i in 0..2 {
-                    let val = xy_str[i].parse::<f32>();
-                    xy_str[i] = "".to_string();                                     // Clear contents out for next player iteration
-                    match val {
-                        Ok(v) => { xy_f32[i] = v; }
-                        Err(e) => { 
-                            // End of string seems to be corrupted - Returns the processed data
-                            println!("{} - {:?}", e, xy_str);
-                        }
-                    }
-                }
+            for (value_index, j) in values.into_iter().enumerate() {
+                //println!("Val extracted: {}", j);
+                match value_index {
+                    // Handle each value here: 
+                    0 => {player_details.position = extract_player_position(j.trim().to_string());}
+                    1 => {player_details.message = j.to_string();}
+                    _ => {panic!("Too many values during extraction of players data?");}
+                }   
             }
-            ret[player_index] = xy_f32;
-            xy_index = 0; 
-            player_index += 1;
-            player_invalid = false;
-        }
-        else if char.is_numeric() || char == '.' || char == '-'{
-            xy_str[xy_index].push(char);
-        }
-        else if char == '|' {
-            player_invalid = true;
+            ret.push(player_details);
         }
     }
     ret
 }
+/// EXTRACTS X,Y VALUES FROM STRING 
+/// Returns: [x, y] as [f32; 2]
+fn extract_player_position(data:String) -> [f32; 2] {
+    let mut ret:[f32; 2] = [0.0; 2];
+    let mut xy_str:[String; 2] = ["".to_string(), "".to_string()];
+    let mut xy_index = 0;
+    for char in data.chars() {
+        if char == ',' {
+            // is a seperator for x,y values
+            xy_index = 1;
+        }
+        else if char.is_numeric() || char == '.' || char == '-' {
+            xy_str[xy_index].push(char);
+        }
+    }
+    for (index, val) in xy_str.iter().enumerate() {
+        let parse_result = val.parse::<f32>();
+        match parse_result {
+            Ok(parse_val) => {ret[index] = parse_val;}
+            Err(e) => {}//println!("{}", e)}
+        }
+    }
+    ret  
+}
+
+
+// let mut ret:Vec<PlayerDetails> = Vec::new();
+
+
+// let mut player_index:usize = 0;
+// let mut xy_index:usize = 0;
+// let mut xy_str:[String; 2] = ["".to_string(), "".to_string()];
+// let mut player_invalid:bool = false;
+
+// let mut msg:[String; 1] = ["".to_string()];
+
+// /// Used to determine what data is being read when iterating through 'data: String'
+// /// MAXIMUM OF 10 MODES AVAILABLE - 0-9
+// #[derive(PartialEq)]
+// enum DataMode {
+//     POSITION=0,
+//     MESSAGE=1, 
+// }
+// let mut mode:DataMode = DataMode::POSITION;
+// let mut is_mode_setting:bool = false;
+
+
+// ret.resize(data.matches(";").count(), PlayerDetails { position: ([0.0; 2]), message: ("".to_string()) });
+
+// let all_players_data = data.split(";");
+// for player_data in all_players_data.into_iter() {
+//     let values = player_data.split(":");
+// }
+
+
+// // Iterates through each char in 'data: String' (all players details sent over from server). 
+// // "(0/POSITION) 100, 50 (1/MESSAGE) "msg1", "nth msg""
+// for char in data.chars() {
+//     // Setting mode of what data is being read
+//     if char == '(' {
+//         is_mode_setting = true;
+//     } else if char == ')' {
+//         is_mode_setting = false;
+//     } else if is_mode_setting {
+//         let mode_val:usize = char.to_string().parse::<usize>().unwrap(); 
+//         match mode_val {
+//             0 => { mode = DataMode::POSITION }
+//             1 => { mode = DataMode::MESSAGE }          
+//             _ => { println!("[ERROR] message has corrupt")}      
+//         } 
+//     }
+    
+//     // ';' IS END OF A PLAYERS DETAILS 
+//     if char == ';' {
+//         // At this point, have collected the players details
+//         let mut xy_f32 = [0.0, 0.0];
+        
+//         if !player_invalid {
+//             for i in 0..2 {
+//                 let val = xy_str[i].parse::<f32>();
+//                 xy_str[i] = "".to_string();                                     // Clear contents out for next player iteration
+//                 match val {
+//                     Ok(v) => { xy_f32[i] = v; }
+//                     Err(e) => { 
+//                         // End of string seems to be corrupted - Returns the processed data
+//                         println!("{} - {:?}", e, xy_str);
+//                     }
+//                 }
+//             }
+//            // println!("{}", msg[0]);
+//             if msg[0].eq("") {
+//                 // If 'msg' collected any data - (A msg has just been sent)
+//                 ret[player_index].message = msg[0].clone();
+//             }
+//         }
+//         ret[player_index].position = xy_f32;
+        
+//         xy_index = 0; 
+//         player_index += 1;
+//         player_invalid = false;
+//     }
+    
+  
+
+//     else if mode == DataMode::POSITION {
+//         if char == ',' {
+//             // Seperation of 2 values (X,Y)
+//             xy_index = 1;
+//         }
+//         else if char.is_numeric() || char == '.' || char == '-'{
+//             xy_str[xy_index].push(char);
+//         }  
+//         else if char == '|'{
+//         player_invalid = true;
+//     }
+//     }
+//     else if mode == DataMode::MESSAGE {
+//         msg[0].push(char);
+//     }
+
+// }
