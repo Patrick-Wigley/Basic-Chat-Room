@@ -2,7 +2,8 @@ use std::net::TcpStream;
 use std::io::{Read, Write};
 use std::thread;
 
-use tetra::{graphics::{mesh::{Mesh, ShapeStyle, GeometryBuilder}, self, Color, Rectangle}, input::{self, Key}, Context, ContextBuilder, State};
+use tetra::{graphics::{mesh::{Mesh, ShapeStyle, GeometryBuilder}, self, text::{Font, Text}, Color, Rectangle},
+            input::{self, Key}, Context, ContextBuilder, State};
 use tetra::math::{Vec2};
 
 
@@ -18,13 +19,16 @@ static mut LOCAL_DETAILS:PlayerDetails = PlayerDetails {name: (String::new()), p
 static mut PLAYERS_DETAILS:Vec<PlayerDetails> = Vec::new();
 const MOVEMENT_SPEED: f32 = 2.0;
 const SCREEN_SIZE:[i32; 2] = [900, 720]; 
+const TEXT_SIZE:f32 = 10.0;
 
 static mut LOCAL_DESIRES_CONNECTED:bool = true;
+
 
 /* TETRA */
 struct GameState {
     map: Mesh,
     map_rect: Rectangle<f32>,
+    text: Text,
     local_player_position: [f32; 2],  
     player_shape: Mesh,  
     scroll: [f32; 2] 
@@ -38,11 +42,15 @@ impl GameState {
             map: GeometryBuilder::new()
             .set_color(Color::rgb(0.4, 0.6, 0.4))
             .rectangle(ShapeStyle::Fill, maps_rectangle)?
-            .build_mesh(ctx)?,
-                    
+            .build_mesh(ctx)?,        
             map_rect: maps_rectangle,
-            local_player_position: [0.0; 2],
             player_shape: Mesh::circle(ctx, ShapeStyle::Stroke(10.0), Vec2::zero(), 10.0)?,
+            
+
+            // Cant seem to find file
+            text: Text::new("-", Font::vector(ctx, "./res/style1.ttf", TEXT_SIZE)?),
+            
+            local_player_position: [0.0; 2],
             scroll: [0.0; 2]
         })   
     }
@@ -59,11 +67,19 @@ impl State for GameState {
         // Draw Other Players
         unsafe {
             for player in PLAYERS_DETAILS.iter() {
-                let xy:Vec2<f32> = Vec2::from(player.clone().position);
-                self.player_shape.draw(ctx, Vec2::from([xy.x - self.scroll[0], xy.y - self.scroll[1]]));
+                let mut xy:Vec2<f32> = Vec2::from(player.clone().position);
+                xy[0] = xy[0] - self.scroll[0];
+                xy[1] = xy[1] - self.scroll[1];
+
+                self.player_shape.draw(ctx, Vec2::from([xy.x, xy.y]));
+              
                 if player.message != "" {
                     println!("[SERVER] Message: {}", player.message);
                 }
+              
+                self.text.set_content(player.name.clone());
+                // self.text.set_max_width(Some(50.0));
+                self.text.draw(ctx, Vec2::from([xy[0] - ((player.name.len() as f32 * TEXT_SIZE)/2.0), xy[1] - 28.0]));
             }
         }
         Ok(())
@@ -125,6 +141,10 @@ fn setup_window() -> tetra::Result {
 }
 
 fn main() {
+    unsafe {
+        // Username cannot contain server key's e.g. ':'
+        LOCAL_DETAILS.name = "user".to_string();
+    }
     thread::spawn(server_handle);
     let _ = setup_window();    
 }
@@ -202,7 +222,7 @@ fn get_players_from_string(data: String) -> Vec<PlayerDetails> {
     //println!("{:?}", player_values);
     
     for val in player_values.into_iter() {
-        if !val.contains("|") {
+        if !val.contains("|") && !val.is_empty() {
             // Player slot is active
             let mut player_details = PlayerDetails {name: ("[Unknown User]".to_string()), position: ([-1000.0, -1000.0]), message: ("".to_string()) };
             // println!("Player found: {}", val);
