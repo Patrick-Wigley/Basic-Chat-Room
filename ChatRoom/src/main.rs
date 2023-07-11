@@ -30,6 +30,7 @@ fn handle_connection(mut client: TcpStream) {
                 // Spot Empty
                 // Bring index back down to ZERO range
                 players_id = index;
+                break;
             }
         }
         if players_id == usize::MAX {
@@ -41,6 +42,8 @@ fn handle_connection(mut client: TcpStream) {
     println!("[SERVER]: New connection: {}", players_id);
     // This is a buffer for the bytes obtained/read throughout this stream
     let mut receive_data:[u8; BYTES_PER_CLIENT_MSG] = [0u8; BYTES_PER_CLIENT_MSG];
+    
+    let mut player_message_cool_down = 0;
 
     loop {        
         // Send ALL Clients details
@@ -49,6 +52,7 @@ fn handle_connection(mut client: TcpStream) {
             let mut other_players_details:Vec<String> = PLAYERS_DETAILS.clone();
             other_players_details.remove(players_id);
             send_val = stringvec_to_string(other_players_details);
+            
         }
         let write_result = client.write(send_val.as_bytes());
         match write_result {
@@ -73,16 +77,29 @@ fn handle_connection(mut client: TcpStream) {
                     handle_disconnect(players_id);
                     break;
                 }
+            
+
                 let msg_cutoff = msg.find("~");
-                // TEMP    
-                if msg.contains("/") {
-                    println!("{}", msg)
-                }
-                // ----------
                 match msg_cutoff {
                     Some(cutoff) => { 
                         unsafe {
-                            PLAYERS_DETAILS[players_id] = msg[0..cutoff].to_string();                  
+                            PLAYERS_DETAILS[players_id] = msg[0..cutoff].to_string();  
+                            
+                            // Handling Player messages
+                            if PLAYERS_DETAILS[players_id].contains("'") {
+                                if player_message_cool_down <= 0 {
+                                // New message has been sent
+                                println!("{}", PLAYERS_DETAILS[players_id]);
+                                player_message_cool_down = 100;
+                                }   
+                                else {
+                                    player_message_cool_down -= 1;
+                                   // println!("Extra messages came through: {}", PLAYERS_DETAILS[players_id]);
+                                }
+                            }   
+
+                              
+                            // ------          
                         }
                     }
                     None => { println!("Couldn't manipulate data? - {}", msg); }

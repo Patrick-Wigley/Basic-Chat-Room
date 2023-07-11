@@ -186,7 +186,7 @@ impl State for GameState {
             }
             if input::is_key_down(ctx, Key::Enter) {
                 unsafe {
-                    LOCAL_DETAILS.message = self.local_player_message.clone();
+                    LOCAL_DETAILS.message = format!("'{}'", self.local_player_message.clone());
                 }
                 self.local_player_message = "".to_string();
             }
@@ -247,16 +247,11 @@ fn server_handle() {
                         let _ = stream.write("(DISCONNECT)".as_bytes());
                         break;
                     }
-                    let local_details_val = LOCAL_DETAILS.clone();
-                    LOCAL_DETAILS.message = "".to_string();
-                    send_val = get_string_from_local_details(local_details_val);
+                    let local_details_copy = LOCAL_DETAILS.clone();
                     // Clear local message content
+                    LOCAL_DETAILS.message = "".to_string();
+                    send_val = get_string_from_local_details(local_details_copy);
 
-                    // TEMP
-                    if send_val.contains("/") {
-                        //println!("{}", send_val);
-                    }
-                    // ----
                 }
                 let _ = stream.write(send_val.as_bytes());
                 
@@ -309,10 +304,10 @@ fn get_players_from_string(data: String) -> Vec<GlobalPlayerDetails> {
                     1 => {player_details.position = extract_player_position(j.trim().to_string());}
                     2 => { 
                         if !j.is_empty() { 
-                            if j.contains("user") { println!("[DEBUG]: message is messed up - '{}'", data); }
+                            if j.contains(":") { println!("[DEBUG]: message is messed up - '{}'", data); }
                             unsafe {
                                 PLAYERS_MESSAGES.push(j.to_string()) 
-                                } 
+                            } 
                         } 
                     }
                     _ => {panic!("Too many values during extraction of players data? - {}", data);}
