@@ -8,35 +8,52 @@ use tetra::math::{Vec2};
 
 
 #[derive(Clone, Debug)]
-struct PlayerDetails {
+struct GlobalPlayerDetails {
+    name: String,
+    position: [f32; 2],
+   // message: Vec<String>
+}
+#[derive(Clone, Debug)]
+struct LocalPlayerDetails {
     name: String,
     position: [f32; 2],
     message: String
 }
 
 /* GLOBALS & CONSTS */
-static mut LOCAL_DETAILS:PlayerDetails = PlayerDetails {name: (String::new()), position: ([0.0, 0.0]), message: (String::new())};
-static mut PLAYERS_DETAILS:Vec<PlayerDetails> = Vec::new();
+static mut LOCAL_DETAILS:LocalPlayerDetails = LocalPlayerDetails {name: (String::new()), position: ([0.0, 0.0]), message: (String::new())};
+static mut PLAYERS_DETAILS:Vec<GlobalPlayerDetails> = Vec::new();
+static mut PLAYERS_MESSAGES:Vec<String> = Vec::new();
+
 const MOVEMENT_SPEED: f32 = 2.0;
 const SCREEN_SIZE:[i32; 2] = [900, 720]; 
-const TEXT_SIZE:f32 = 10.0;
+const TEXT_SIZE:f32 = 17.0;
 
 static mut LOCAL_DESIRES_CONNECTED:bool = true;
 
 
 /* TETRA */
 struct GameState {
+    // Meshes
     map: Mesh,
     map_rect: Rectangle<f32>,
-    text: Text,
-    local_player_position: [f32; 2],  
     player_shape: Mesh,  
+    chat_box: Mesh, 
+    chat_box_rect: Rectangle<f32>,
+
+    text: Text,
+    chat_mode: bool,
+    
+    
+    local_player_position: [f32; 2],  
+    local_player_message: String,
+
     scroll: [f32; 2] 
 }
 impl GameState {
     fn new(ctx: &mut Context) -> tetra::Result<GameState> {
         let maps_rectangle = Rectangle::new(100.0, 100.0, 2000.0, 2000.0);
-        
+        let chat_box_rectangle = Rectangle::new(0.0, 0.0, SCREEN_SIZE[0] as f32, 300.0);
         
         Ok(GameState {  
             map: GeometryBuilder::new()
@@ -45,12 +62,21 @@ impl GameState {
             .build_mesh(ctx)?,        
             map_rect: maps_rectangle,
             player_shape: Mesh::circle(ctx, ShapeStyle::Stroke(10.0), Vec2::zero(), 10.0)?,
-            
+            chat_box: GeometryBuilder::new()
+            .set_color(Color::rgba(0.3, 0.3, 0.3, 0.5))
+            .rectangle(ShapeStyle::Fill, chat_box_rectangle)?
+            .set_color(Color::rgb(0.0,0.0,0.0,))
+            .rectangle(ShapeStyle::Stroke(5.0), Rectangle::new(0.0, 0.0, SCREEN_SIZE[0] as f32, 300.0))?
+            .build_mesh(ctx)?,
+            chat_box_rect: chat_box_rectangle,
 
             // Cant seem to find file
             text: Text::new("-", Font::vector(ctx, "./res/style1.ttf", TEXT_SIZE)?),
-            
+            chat_mode: false,
+
             local_player_position: [0.0; 2],
+            local_player_message: String::new(),
+
             scroll: [0.0; 2]
         })   
     }
@@ -59,28 +85,43 @@ impl State for GameState {
     fn draw(&mut self, ctx: &mut Context) -> tetra::Result {
         graphics::clear(ctx, Color::rgb(0.43, 0.24, 0.51));
         
+        // Draw Arena
         self.map.draw(ctx, Vec2::from([0.0 - self.scroll[0], 0.0 - self.scroll[1]]));
 
         // Draw Local Player
         self.player_shape.draw(ctx, Vec2::from([self.local_player_position[0] - self.scroll[0], self.local_player_position[1] - self.scroll[1]]));
 
-        // Draw Other Players
+        if self.chat_mode {
+            // Draw Chat-box
+            self.chat_box.draw(ctx, Vec2::new(0.0, 0.0));
+            self.text.set_content(self.local_player_message.as_str());
+            self.text.draw(ctx, Vec2::new(10.0, self.chat_box_rect.height - TEXT_SIZE - 3.0));
+        }
+
+
         unsafe {
-            for player in PLAYERS_DETAILS.iter() {
-                let mut xy:Vec2<f32> = Vec2::from(player.clone().position);
+            // Draw Other Players
+            for (index, player) in PLAYERS_DETAILS.clone().iter().enumerate() {
+                let mut xy:Vec2<f32> = Vec2::from(player.position);
                 xy[0] = xy[0] - self.scroll[0];
                 xy[1] = xy[1] - self.scroll[1];
 
                 self.player_shape.draw(ctx, Vec2::from([xy.x, xy.y]));
               
-                if player.message != "" {
-                    println!("[SERVER] Message: {}", player.message);
-                }
-              
+                
                 self.text.set_content(player.name.clone());
                 // self.text.set_max_width(Some(50.0));
                 self.text.draw(ctx, Vec2::from([xy[0] - ((player.name.len() as f32 * TEXT_SIZE)/2.0), xy[1] - 28.0]));
             }
+            
+            
+            // Draw Messages 
+            for msg in PLAYERS_MESSAGES.clone() {
+                println!("{}", msg);
+            }
+            PLAYERS_MESSAGES.clear();
+         
+
         }
         Ok(())
     }  
@@ -107,8 +148,11 @@ impl State for GameState {
 
         if input::is_key_down(ctx, Key::Escape) {
             unsafe {
-                LOCAL_DESIRES_CONNECTED = false;
+                //LOCAL_DESIRES_CONNECTED = false;
             }
+        }
+        if input::is_key_released(ctx, Key::T) {
+            self.chat_mode = true;
         }
 
         // Arena Collision Detection
@@ -125,11 +169,33 @@ impl State for GameState {
             self.local_player_position[1] = (self.map_rect.y + self.map_rect.height)
         }
 
+
+        // Typing in chat
+        if self.chat_mode {
+            // Player has chat open
+            let wrapped_value = input::get_text_input(ctx);
+            match wrapped_value {
+               Some(val) => {self.local_player_message.push_str(val);}
+               None => {}
+            }
+            if input::is_key_released(ctx, Key::Backspace) {
+                self.local_player_message.pop();
+            }
+            if input::is_key_down(ctx, Key::Escape) {
+                self.chat_mode = false;
+            }
+            if input::is_key_down(ctx, Key::Enter) {
+                unsafe {
+                    LOCAL_DETAILS.message = self.local_player_message.clone();
+                }
+                self.local_player_message = "".to_string();
+            }
+        }
+        
         // Setting global var to be used in 'server_handle' thread
         unsafe {
             LOCAL_DETAILS.position = self.local_player_position.clone();
         }
-
         Ok(())
     }
 }
@@ -157,7 +223,7 @@ fn server_handle() {
     
     match stream {
         Ok(mut stream) => {
-            let mut raw_receive_data:[u8; 128] = [0u8; 128];
+            let mut raw_receive_data:[u8; 550] = [0u8; 550];
             
             loop {
                 /* RECEIVING DATA FROM SERVER */               
@@ -181,9 +247,16 @@ fn server_handle() {
                         let _ = stream.write("(DISCONNECT)".as_bytes());
                         break;
                     }
-                    send_val = get_string_from_local_details(LOCAL_DETAILS.clone());
-                    // Clear message content
+                    let local_details_val = LOCAL_DETAILS.clone();
                     LOCAL_DETAILS.message = "".to_string();
+                    send_val = get_string_from_local_details(local_details_val);
+                    // Clear local message content
+
+                    // TEMP
+                    if send_val.contains("/") {
+                        //println!("{}", send_val);
+                    }
+                    // ----
                 }
                 let _ = stream.write(send_val.as_bytes());
                 
@@ -198,16 +271,16 @@ fn server_handle() {
 /* SUB FUNCTIONS USED FOR 'server_handle' */
 /// Prepares string which will be sent over to the server \
 /// Returns prepared String
-fn get_string_from_local_details(local_player_details: PlayerDetails) -> String {
+fn get_string_from_local_details(local_player_details: LocalPlayerDetails) -> String {
     format!("{}:{},{}:{};~ ",
-    local_player_details.name, 
+    local_player_details.name,
     local_player_details.position[0], local_player_details.position[1], 
     local_player_details.message
-    )
+    )  
 }
 /// Gathers each players details from string received & processes it to Vec<[f32; 2]> \
 /// Returns processed Vector
-fn get_players_from_string(data: String) -> Vec<PlayerDetails> {
+fn get_players_from_string(data: String) -> Vec<GlobalPlayerDetails> {
     // EXAMPLE OF A MESSAGE - "12.1,51.2 : 'a message'; '61.9,21.0' : 'Hello World'; |;"
     #[derive(PartialEq)]
     enum ValueIndices {
@@ -216,7 +289,7 @@ fn get_players_from_string(data: String) -> Vec<PlayerDetails> {
         MESSAGE=2, 
     }
     
-    let mut ret:Vec<PlayerDetails> = Vec::new();
+    let mut ret:Vec<GlobalPlayerDetails> = Vec::new();
 
     let player_values = data.split(";");
     //println!("{:?}", player_values);
@@ -224,7 +297,7 @@ fn get_players_from_string(data: String) -> Vec<PlayerDetails> {
     for val in player_values.into_iter() {
         if !val.contains("|") && !val.is_empty() {
             // Player slot is active
-            let mut player_details = PlayerDetails {name: ("[Unknown User]".to_string()), position: ([-1000.0, -1000.0]), message: ("".to_string()) };
+            let mut player_details = GlobalPlayerDetails {name: ("[Unknown User]".to_string()), position: ([-1000.0, -1000.0]) };
             // println!("Player found: {}", val);
             let values = val.split(":");
             
@@ -234,7 +307,14 @@ fn get_players_from_string(data: String) -> Vec<PlayerDetails> {
                     // Handle each value here: 
                     0 => {player_details.name = j.to_string();}
                     1 => {player_details.position = extract_player_position(j.trim().to_string());}
-                    2 => {player_details.message = j.to_string();}
+                    2 => { 
+                        if !j.is_empty() { 
+                            if j.contains("user") { println!("[DEBUG]: message is messed up - '{}'", data); }
+                            unsafe {
+                                PLAYERS_MESSAGES.push(j.to_string()) 
+                                } 
+                        } 
+                    }
                     _ => {panic!("Too many values during extraction of players data? - {}", data);}
                 }   
             }
@@ -269,7 +349,7 @@ fn extract_player_position(data:String) -> [f32; 2] {
 }
 
 
-// let mut ret:Vec<PlayerDetails> = Vec::new();
+// let mut ret:Vec<GlobalPlayerDetails> = Vec::new();
 
 
 // let mut player_index:usize = 0;
@@ -290,7 +370,7 @@ fn extract_player_position(data:String) -> [f32; 2] {
 // let mut is_mode_setting:bool = false;
 
 
-// ret.resize(data.matches(";").count(), PlayerDetails { position: ([0.0; 2]), message: ("".to_string()) });
+// ret.resize(data.matches(";").count(), GlobalPlayerDetails { position: ([0.0; 2]), message: ("".to_string()) });
 
 // let all_players_data = data.split(";");
 // for player_data in all_players_data.into_iter() {

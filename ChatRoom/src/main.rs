@@ -8,6 +8,8 @@ static mut PLAYERS_DETAILS:Vec<String> = Vec::new();
 const MAX_USERS:usize = 5;
 static mut ACTIVE_PLAYERS_COUNT:usize = 0;
 
+const MAX_CHARS_PER_CLIENT_MSG:usize = 80;
+const BYTES_PER_CLIENT_MSG:usize = 455;
 
 // KEY:
 // Example string - "12.1,51.2 : 'message' : value ; "12.1,51.2 : 'message' : value" 
@@ -38,7 +40,7 @@ fn handle_connection(mut client: TcpStream) {
     }
     println!("[SERVER]: New connection: {}", players_id);
     // This is a buffer for the bytes obtained/read throughout this stream
-    let mut receive_data:[u8; 50] = [0u8; 50];
+    let mut receive_data:[u8; BYTES_PER_CLIENT_MSG] = [0u8; BYTES_PER_CLIENT_MSG];
 
     loop {        
         // Send ALL Clients details
@@ -71,8 +73,19 @@ fn handle_connection(mut client: TcpStream) {
                     handle_disconnect(players_id);
                     break;
                 }
-                unsafe {
-                    PLAYERS_DETAILS[players_id] = msg[0..(msg.find("~").unwrap())].to_string();                  
+                let msg_cutoff = msg.find("~");
+                // TEMP    
+                if msg.contains("/") {
+                    println!("{}", msg)
+                }
+                // ----------
+                match msg_cutoff {
+                    Some(cutoff) => { 
+                        unsafe {
+                            PLAYERS_DETAILS[players_id] = msg[0..cutoff].to_string();                  
+                        }
+                    }
+                    None => { println!("Couldn't manipulate data? - {}", msg); }
                 }
             }
             Err(e) => {
