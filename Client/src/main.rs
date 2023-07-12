@@ -9,6 +9,7 @@ use tetra::math::{Vec2};
 
 #[derive(Clone, Debug)]
 struct GlobalPlayerDetails {
+    id: usize,
     name: String,
     position: [f32; 2],
    // message: Vec<String>
@@ -20,14 +21,22 @@ struct LocalPlayerDetails {
     message: String
 }
 
+#[derive(Clone, Debug)]
+struct PlayersMessage {
+    id: usize,
+    msg: String
+}
+
 /* GLOBALS & CONSTS */
 static mut LOCAL_DETAILS:LocalPlayerDetails = LocalPlayerDetails {name: (String::new()), position: ([0.0, 0.0]), message: (String::new())};
 static mut PLAYERS_DETAILS:Vec<GlobalPlayerDetails> = Vec::new();
-static mut PLAYERS_MESSAGES:Vec<String> = Vec::new();
+static mut PLAYERS_MESSAGES:Vec<PlayersMessage> = Vec::new();
 
 const MOVEMENT_SPEED: f32 = 2.0;
 const SCREEN_SIZE:[i32; 2] = [900, 720]; 
 const TEXT_SIZE:f32 = 17.0;
+
+const MAX_PLAYERS:usize = 20;
 
 static mut LOCAL_DESIRES_CONNECTED:bool = true;
 
@@ -116,10 +125,10 @@ impl State for GameState {
             
             
             // Draw Messages 
-            for msg in PLAYERS_MESSAGES.clone() {
-                println!("{}", msg);
-            }
-            PLAYERS_MESSAGES.clear();
+            // for msg in PLAYERS_MESSAGES.clone() {
+            //     println!("{}", msg);
+            // }
+            // PLAYERS_MESSAGES.clear();
          
 
         }
@@ -210,6 +219,8 @@ fn main() {
     unsafe {
         // Username cannot contain server key's e.g. ':'
         LOCAL_DETAILS.name = "user".to_string();
+
+        PLAYERS_MESSAGES.resize(MAX_PLAYERS, PlayersMessage {id:(usize::MAX), msg:("".to_string())})
     }
     thread::spawn(server_handle);
     let _ = setup_window();    
@@ -223,10 +234,10 @@ fn server_handle() {
     
     match stream {
         Ok(mut stream) => {
-            let mut raw_receive_data:[u8; 550] = [0u8; 550];
             
             loop {
                 /* RECEIVING DATA FROM SERVER */               
+                let mut raw_receive_data:[u8; 550] = [0u8; 550];
                 let _ = stream.read(&mut raw_receive_data);
                 let data = std::str::from_utf8(&raw_receive_data);
                 match data {
@@ -267,7 +278,7 @@ fn server_handle() {
 /// Prepares string which will be sent over to the server \
 /// Returns prepared String
 fn get_string_from_local_details(local_player_details: LocalPlayerDetails) -> String {
-    format!("{}:{},{}:{};~ ",
+    format!("{}:{},{}:{}~ ",
     local_player_details.name,
     local_player_details.position[0], local_player_details.position[1], 
     local_player_details.message
@@ -284,33 +295,71 @@ fn get_players_from_string(data: String) -> Vec<GlobalPlayerDetails> {
         MESSAGE=2, 
     }
     
-    let mut ret:Vec<GlobalPlayerDetails> = Vec::new();
-
+    // Need to get copy of current players details and work with that, apply new changes and return that.
+    
+    let mut ret: Vec<GlobalPlayerDetails> = Vec::new();
+    
     let player_values = data.split(";");
     //println!("{:?}", player_values);
     
     for val in player_values.into_iter() {
         if !val.contains("|") && !val.is_empty() {
             // Player slot is active
-            let mut player_details = GlobalPlayerDetails {name: ("[Unknown User]".to_string()), position: ([-1000.0, -1000.0]) };
+            let mut player_details = GlobalPlayerDetails {id: (usize::MAX), name: ("[Unknown User]".to_string()), position: ([-1000.0, -1000.0]) };
             // println!("Player found: {}", val);
             let values = val.split(":");
             
+            
+            let mut player_id_found:bool = false;
             for (value_index, j) in values.into_iter().enumerate() {
                 //println!("Val extracted: {}", j);
                 match value_index {
                     // Handle each value here: 
-                    0 => {player_details.name = j.to_string();}
-                    1 => {player_details.position = extract_player_position(j.trim().to_string());}
-                    2 => { 
-                        if !j.is_empty() { 
-                            if j.contains(":") { println!("[DEBUG]: message is messed up - '{}'", data); }
+                    0 => { 
+                      //Player ID
+                      match j.parse::<usize>() {
+                        Ok(r) => { player_details.id = r; player_id_found = true; }
+                        Err(e) => { println!("{}", e); } 
+                      }
+                      
+                    
+                    } 
+                    1 => {player_details.name = j.to_string();}
+                    2 => {player_details.position = extract_player_position(j.trim().to_string());}
+                    3 => { 
+                        if !j.is_empty() && player_id_found { 
+                            // if j.contains(":") { println!("[DEBUG]: message is messed up - '{}'", data); }
+                            // if j.contains("'") {
+                            //     println!("{} - Full Msg: {}", j, data);
+                            // }
                             unsafe {
-                                PLAYERS_MESSAGES.push(j.to_string()) 
+                                // stop spamming messages
+                                let mut recent_chat_log = "".to_string();
+                                //let mut players_recent_messages = PLAYERS_MESSAGES.
+                                
+                                // If players recent message is same as this message received
+                                if !(PLAYERS_MESSAGES[player_details.id].msg == j.to_string()){
+                                    println!("[{}]{}: {}", player_details.id, player_details.name, j.to_string());
+                                    PLAYERS_MESSAGES[player_details.id].msg = j.to_string();
+                                }
+                                // Else Ignore
+                                
+
+                                // PLAYERS_MESSAGES.push(
+                                //     PlayersMessage { name: (player_details.name), msg: (j.to_string()) }
+                                // );
+
+
+                                // recent_chat_log.push_str(
+                                //     format!("[{}]{}",player_details.name, j.to_string()).as_str()
+                                // );
                             } 
                         } 
+                        else if !j.is_empty() {
+                            println!("Could not find player id? - {}", val)
+                        }
                     }
-                    _ => {panic!("Too many values during extraction of players data? - {}", data);}
+                    _ => {println!("Corrupt data received? - {}", data);}
                 }   
             }
             ret.push(player_details);

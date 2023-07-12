@@ -4,7 +4,15 @@ use std::time::Duration;
 
 const DEBUG:bool = true;
 
-static mut PLAYERS_DETAILS:Vec<String> = Vec::new();
+#[derive(Clone, Debug)]
+struct PlayerDetails {
+    id: usize,
+    name: String,
+    pos: String,
+    msg: String
+}
+
+static mut PLAYERS_DETAILS:Vec<PlayerDetails> = Vec::new();
 const MAX_USERS:usize = 5;
 static mut ACTIVE_PLAYERS_COUNT:usize = 0;
 
@@ -26,10 +34,12 @@ fn handle_connection(mut client: TcpStream) {
     let mut players_id:usize = usize::MAX;
     unsafe {
         for (index, val) in PLAYERS_DETAILS.iter().enumerate(){
-            if val.contains("|") {
+            if val.name.contains("|") {
                 // Spot Empty
                 // Bring index back down to ZERO range
                 players_id = index;
+                PLAYERS_DETAILS[index].id = index;
+                
                 break;
             }
         }
@@ -41,15 +51,14 @@ fn handle_connection(mut client: TcpStream) {
     }
     println!("[SERVER]: New connection: {}", players_id);
     // This is a buffer for the bytes obtained/read throughout this stream
-    let mut receive_data:[u8; BYTES_PER_CLIENT_MSG] = [0u8; BYTES_PER_CLIENT_MSG];
     
     let mut player_message_cool_down = 0;
-
+    
     loop {        
         // Send ALL Clients details
         let send_val:String;
         unsafe {
-            let mut other_players_details:Vec<String> = PLAYERS_DETAILS.clone();
+            let mut other_players_details:Vec<PlayerDetails> = PLAYERS_DETAILS.clone();
             other_players_details.remove(players_id);
             send_val = stringvec_to_string(other_players_details);
             
@@ -65,8 +74,9 @@ fn handle_connection(mut client: TcpStream) {
                 break;
             }
         }
-
+        
         // Read clients details
+        let mut receive_data:[u8; BYTES_PER_CLIENT_MSG] = [0u8; BYTES_PER_CLIENT_MSG];
         let _ = client.read(&mut receive_data);
         let received_data_unpacked = std::str::from_utf8(&receive_data);
         
@@ -77,26 +87,79 @@ fn handle_connection(mut client: TcpStream) {
                     handle_disconnect(players_id);
                     break;
                 }
-            
-
+                
+                
                 let msg_cutoff = msg.find("~");
                 match msg_cutoff {
                     Some(cutoff) => { 
                         unsafe {
-                            PLAYERS_DETAILS[players_id] = msg[0..cutoff].to_string();  
+                            let actual_msg = msg[0..cutoff].to_string(); 
                             
-                            // Handling Player messages
-                            if PLAYERS_DETAILS[players_id].contains("'") {
-                                if player_message_cool_down <= 0 {
-                                // New message has been sent
-                                println!("{}", PLAYERS_DETAILS[players_id]);
-                                player_message_cool_down = 100;
-                                }   
-                                else {
-                                    player_message_cool_down -= 1;
-                                   // println!("Extra messages came through: {}", PLAYERS_DETAILS[players_id]);
+                            // Split values from message into players values
+                            let players_details = actual_msg.split(":");
+                            for (index, val) in players_details.into_iter().enumerate() {
+                                match index {
+                                    0 => { PLAYERS_DETAILS[players_id].name = val.to_string(); }
+                                    1 => { PLAYERS_DETAILS[players_id].pos = val.to_string(); }
+                                    2 => { 
+
+                                        // Method 2
+                                        // if val.matches("'") == 2 or if val.contians("'"") {
+                                            // if val != "''" {
+                                                // msg valid
+                                            //}
+                                        //} 
+
+                                        if val.matches("'").count() >= 2 {
+                                            if val != "''" {
+                                                println!("[{}] {}", PLAYERS_DETAILS[players_id].name, val);
+                                                PLAYERS_DETAILS[players_id].msg = val.to_string(); 
+                                            }  
+                                        }
+
+                                        // // Method 1 - Timer
+                                        // if val.contains("'") && player_message_cool_down >= 25 {
+                                        //     // Reset Timer to zero
+                                        //     player_message_cool_down = 0;
+                                        // }
+                                        // else if player_message_cool_down < 25 {
+                                        //     println!("Excess received: {}", val);
+                                        //     player_message_cool_down += 1;
+                                        // }
+                                    }
+                                    _ => { println!("To many player details values received? - {}", actual_msg); }
                                 }
-                            }   
+                            }
+
+                            
+                            // if msg.matches("'").count() == 2 {
+                            //     // Should be a valid string with a new message
+                            //     //println!("new message: {}", msg);
+                            // }
+
+                            // let mut count = 0;
+                            // let mut found = false;
+                            // // if msg has: 1 ~ and ''
+                            // if msg 
+
+                            // if found {
+                            //     println!("Found a quote - {}", msg);
+                            // }
+                            // if count == 2 && msg != "''" {
+                            //     println!("{}", msg);
+                            // }
+
+                            // Handling Player messages
+                            // if PLAYERS_DETAILS[players_id].find("'") {
+                            //     if player_message_cool_down <= 0 {
+                            //         // New message has been sent
+                            //         player_message_cool_down = 100;
+                            //     }   
+                            //     else {
+                            //         player_message_cool_down -= 1;
+                            //        // println!("Extra messages came through: {}", PLAYERS_DETAILS[players_id]);
+                            //     }
+                            // }   
 
                               
                             // ------          
@@ -114,7 +177,7 @@ fn handle_connection(mut client: TcpStream) {
 
 fn main() {
     unsafe {
-        PLAYERS_DETAILS.resize(MAX_USERS, "|;".to_string());
+        PLAYERS_DETAILS.resize(MAX_USERS, PlayerDetails { id: (usize::MAX), name: ("|".to_string()), pos: ("0.0,0.0".to_string()), msg: ("".to_string()) });
     }
         
     let listener_result = TcpListener::bind("127.0.0.1:80");
@@ -127,7 +190,7 @@ fn main() {
                 match incoming_stream {
                     Ok(s) => { 
                         let current_active_players_count: usize;
-                        let current_players_details: Vec<String>;
+                        let current_players_details: Vec<PlayerDetails>;
                         unsafe {
                             current_active_players_count = ACTIVE_PLAYERS_COUNT.clone();
                             current_players_details = PLAYERS_DETAILS.clone();
@@ -151,10 +214,15 @@ fn main() {
     }
 }
 /// Converts Vector of player details to one string for transmission
-fn stringvec_to_string(arr:Vec<String>) -> String {
-    let mut ret:String = "#".to_string();
+fn stringvec_to_string(arr:Vec<PlayerDetails>) -> String {
+    let mut ret:String = "".to_string();
     for player in arr.iter() {
-        ret.push_str(format!("{}", player).as_str());
+        ret.push_str(format!("{}:{}:{}:{};", 
+        player.id,
+        player.name, 
+        player.pos, 
+        player.msg
+        ).as_str());
     }
     // Add '~' to determine end of all players data
     ret.push('~');
@@ -165,7 +233,7 @@ fn handle_disconnect(player_id:usize) {
     println!("[SERVER]: Connection lost: {}", player_id);
     unsafe {
         ACTIVE_PLAYERS_COUNT -= 1;
-        PLAYERS_DETAILS[player_id] = "|;".to_string();
+        PLAYERS_DETAILS[player_id].name = "|".to_string();
     };
 }
 
