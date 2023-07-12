@@ -295,8 +295,10 @@ fn get_players_from_string(data: String) -> Vec<GlobalPlayerDetails> {
             // Player slot is active
             let mut player_details = GlobalPlayerDetails {id: (usize::MAX), name: ("[Unknown User]".to_string()), position: ([-1000.0, -1000.0]) };
             let values = val.split(":");
-                        
+            
+            let mut data_is_corrupt = false;
             let mut player_id_found:bool = false;
+            let mut players_message = "".to_string();
             for (value_index, j) in values.into_iter().enumerate() {
                 match value_index {
                     // Handle each value here: 
@@ -310,23 +312,26 @@ fn get_players_from_string(data: String) -> Vec<GlobalPlayerDetails> {
                     1 => {player_details.name = j.to_string();}
                     2 => {player_details.position = extract_player_position(j.trim().to_string());}
                     3 => { 
-                        if !j.is_empty() && player_id_found { 
-                            unsafe {
-                                // stop spamming messages
-                                // If players recent message is same as this message received
-                                if !(PLAYERS_MESSAGES[player_details.id].msg == j.to_string()){
-                                    println!("[{}]{}: {}", player_details.id, player_details.name, j.to_string());
-                                    PLAYERS_MESSAGES[player_details.id].msg = j.to_string();
-                                }
-                                // Else Ignore
-                            } 
-                        } 
-                        else if !j.is_empty() {
-                            println!("Could not find player id? - {}", val)
-                        }
+                        players_message = j.to_string();
                     }
-                    _ => {println!("Corrupt data received? - {}", data);}
+                    _ => {println!("Corrupt data received? - {}", data); data_is_corrupt = true;}
                 }   
+            }
+            if !data_is_corrupt {
+                if !players_message.is_empty() && player_id_found { 
+                    unsafe {
+                        // stop spamming messages
+                        // If players recent message is same as this message received
+                        if !(PLAYERS_MESSAGES[player_details.id].msg == players_message){
+                            println!("[{}]{}: {}", player_details.id, player_details.name, players_message);
+                            PLAYERS_MESSAGES[player_details.id].msg = players_message;
+                        }
+                        // Else Ignore
+                    } 
+                } 
+                else if !players_message.is_empty() {
+                    println!("Could not find player id? - {}", val)
+                }
             }
             ret.push(player_details);
         }
