@@ -31,6 +31,7 @@ struct PlayersMessage {
 static mut LOCAL_DETAILS:LocalPlayerDetails = LocalPlayerDetails {name: (String::new()), position: ([0.0, 0.0]), message: (String::new())};
 static mut PLAYERS_DETAILS:Vec<GlobalPlayerDetails> = Vec::new();
 static mut PLAYERS_MESSAGES:Vec<PlayersMessage> = Vec::new();
+static mut CHAT_LOG:Vec<String> = Vec::new();
 
 const MOVEMENT_SPEED: f32 = 2.0;
 const SCREEN_SIZE:[i32; 2] = [900, 720]; 
@@ -49,6 +50,7 @@ struct GameState {
     player_shape: Mesh,  
     chat_box: Mesh, 
     chat_box_rect: Rectangle<f32>,
+    chat_box_line: Mesh,
 
     text: Text,
     chat_mode: bool,
@@ -78,6 +80,10 @@ impl GameState {
             .rectangle(ShapeStyle::Stroke(5.0), Rectangle::new(0.0, 0.0, SCREEN_SIZE[0] as f32, 300.0))?
             .build_mesh(ctx)?,
             chat_box_rect: chat_box_rectangle,
+            chat_box_line: GeometryBuilder::new()
+            .set_color(Color::rgba(0.0, 0.0, 0.0, 0.4))
+            .rectangle(ShapeStyle::Fill, Rectangle::new(2.5, 0.0, chat_box_rectangle.width - 5.0, TEXT_SIZE+10.0))?
+            .build_mesh(ctx)?,
 
             // Cant seem to find file
             text: Text::new("-", Font::vector(ctx, "./res/style1.ttf", TEXT_SIZE)?),
@@ -103,11 +109,25 @@ impl State for GameState {
         if self.chat_mode {
             // Draw Chat-box
             self.chat_box.draw(ctx, Vec2::new(0.0, 0.0));
+            self.chat_box_line.draw(ctx, Vec2::new( self.chat_box_rect.x, self.chat_box_rect.height - TEXT_SIZE - 10.0));
+            // Draw local message currently typing in
             self.text.set_content(self.local_player_message.as_str());
-            self.text.draw(ctx, Vec2::new(10.0, self.chat_box_rect.height - TEXT_SIZE - 3.0));
+            self.text.draw(ctx, Vec2::new(13.0, self.chat_box_rect.height - TEXT_SIZE - 7.0));
+            
+
+            unsafe {
+                let current_chat_log = CHAT_LOG.clone();
+                // Draw Messages 
+                for (index, msg) in current_chat_log.iter().rev().enumerate() {
+                    self.text.set_content(msg);
+                    let y = ((self.chat_box_rect.height - (TEXT_SIZE - 3.0)) - ((TEXT_SIZE + 3.0) * index as f32)) - ((TEXT_SIZE + 3.0)*2.0);
+                    self.text.draw(ctx, Vec2::new(
+                        13.0,
+                        y - 3.0
+                        ));
+                }     
+            }
         }
-
-
         unsafe {
             // Draw Other Players
             for (index, player) in PLAYERS_DETAILS.clone().iter().enumerate() {
@@ -122,16 +142,8 @@ impl State for GameState {
                 // self.text.set_max_width(Some(50.0));
                 self.text.draw(ctx, Vec2::from([xy[0] - ((player.name.len() as f32 * TEXT_SIZE)/2.0), xy[1] - 28.0]));
             }
-            
-            
-            // Draw Messages 
-            // for msg in PLAYERS_MESSAGES.clone() {
-            //     println!("{}", msg);
-            // }
-            // PLAYERS_MESSAGES.clear();
-         
-
         }
+
         Ok(())
     }  
     fn update(&mut self, ctx: &mut Context) -> tetra::Result {
@@ -193,8 +205,9 @@ impl State for GameState {
             if input::is_key_down(ctx, Key::Escape) {
                 self.chat_mode = false;
             }
-            if input::is_key_down(ctx, Key::Enter) {
+            if input::is_key_released(ctx, Key::Enter) {
                 unsafe {
+                    CHAT_LOG.push(format!("[{}]: {}", LOCAL_DETAILS.name, self.local_player_message.clone()));
                     LOCAL_DETAILS.message = format!("'{}'", self.local_player_message.clone());
                 }
                 self.local_player_message = "".to_string();
@@ -324,6 +337,12 @@ fn get_players_from_string(data: String) -> Vec<GlobalPlayerDetails> {
                         // If players recent message is same as this message received
                         if !(PLAYERS_MESSAGES[player_details.id].msg == players_message){
                             println!("[{}]{}: {}", player_details.id, player_details.name, players_message);
+                            // Push to chat log
+                            if CHAT_LOG.len() >= 20 {
+                                CHAT_LOG.remove(0);
+                            }
+                            CHAT_LOG.push(format!("[{}]: {}", player_details.name, players_message.clone()));
+                            // To keep track of this players message history for spam
                             PLAYERS_MESSAGES[player_details.id].msg = players_message;
                         }
                         // Else Ignore
