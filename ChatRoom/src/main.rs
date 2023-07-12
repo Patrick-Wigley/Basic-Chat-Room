@@ -16,7 +16,6 @@ static mut PLAYERS_DETAILS:Vec<PlayerDetails> = Vec::new();
 const MAX_USERS:usize = 5;
 static mut ACTIVE_PLAYERS_COUNT:usize = 0;
 
-const MAX_CHARS_PER_CLIENT_MSG:usize = 80;
 const BYTES_PER_CLIENT_MSG:usize = 455;
 
 // KEY:
@@ -50,9 +49,6 @@ fn handle_connection(mut client: TcpStream) {
         ACTIVE_PLAYERS_COUNT += 1;
     }
     println!("[SERVER]: New connection: {}", players_id);
-    // This is a buffer for the bytes obtained/read throughout this stream
-    
-    let mut player_message_cool_down = 0;
     
     loop {        
         // Send ALL Clients details
@@ -76,6 +72,7 @@ fn handle_connection(mut client: TcpStream) {
         }
         
         // Read clients details
+        // This is a buffer for the bytes obtained/read throughout this stream
         let mut receive_data:[u8; BYTES_PER_CLIENT_MSG] = [0u8; BYTES_PER_CLIENT_MSG];
         let _ = client.read(&mut receive_data);
         let received_data_unpacked = std::str::from_utf8(&receive_data);
@@ -83,11 +80,9 @@ fn handle_connection(mut client: TcpStream) {
         match received_data_unpacked {
             Ok(msg) => {
                 if msg.contains("(DISCONNECT)") {
-                    // Player is disconnecting, handle this and make room for other connections to take this place
                     handle_disconnect(players_id);
                     break;
                 }
-                
                 
                 let msg_cutoff = msg.find("~");
                 match msg_cutoff {
@@ -102,67 +97,16 @@ fn handle_connection(mut client: TcpStream) {
                                     0 => { PLAYERS_DETAILS[players_id].name = val.to_string(); }
                                     1 => { PLAYERS_DETAILS[players_id].pos = val.to_string(); }
                                     2 => { 
-
-                                        // Method 2
-                                        // if val.matches("'") == 2 or if val.contians("'"") {
-                                            // if val != "''" {
-                                                // msg valid
-                                            //}
-                                        //} 
-
                                         if val.matches("'").count() >= 2 {
                                             if val != "''" {
                                                 println!("[{}] {}", PLAYERS_DETAILS[players_id].name, val);
                                                 PLAYERS_DETAILS[players_id].msg = val.to_string(); 
                                             }  
                                         }
-
-                                        // // Method 1 - Timer
-                                        // if val.contains("'") && player_message_cool_down >= 25 {
-                                        //     // Reset Timer to zero
-                                        //     player_message_cool_down = 0;
-                                        // }
-                                        // else if player_message_cool_down < 25 {
-                                        //     println!("Excess received: {}", val);
-                                        //     player_message_cool_down += 1;
-                                        // }
                                     }
                                     _ => { println!("To many player details values received? - {}", actual_msg); }
                                 }
-                            }
-
-                            
-                            // if msg.matches("'").count() == 2 {
-                            //     // Should be a valid string with a new message
-                            //     //println!("new message: {}", msg);
-                            // }
-
-                            // let mut count = 0;
-                            // let mut found = false;
-                            // // if msg has: 1 ~ and ''
-                            // if msg 
-
-                            // if found {
-                            //     println!("Found a quote - {}", msg);
-                            // }
-                            // if count == 2 && msg != "''" {
-                            //     println!("{}", msg);
-                            // }
-
-                            // Handling Player messages
-                            // if PLAYERS_DETAILS[players_id].find("'") {
-                            //     if player_message_cool_down <= 0 {
-                            //         // New message has been sent
-                            //         player_message_cool_down = 100;
-                            //     }   
-                            //     else {
-                            //         player_message_cool_down -= 1;
-                            //        // println!("Extra messages came through: {}", PLAYERS_DETAILS[players_id]);
-                            //     }
-                            // }   
-
-                              
-                            // ------          
+                            }       
                         }
                     }
                     None => { println!("Couldn't manipulate data? - {}", msg); }
@@ -179,9 +123,7 @@ fn main() {
     unsafe {
         PLAYERS_DETAILS.resize(MAX_USERS, PlayerDetails { id: (usize::MAX), name: ("|".to_string()), pos: ("0.0,0.0".to_string()), msg: ("".to_string()) });
     }
-        
     let listener_result = TcpListener::bind("127.0.0.1:80");
-    
 
     match listener_result {
         Ok(listener) => {
