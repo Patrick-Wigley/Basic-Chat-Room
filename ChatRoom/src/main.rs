@@ -1,6 +1,8 @@
 use std::{net::{TcpListener, TcpStream}, thread, io::{Write, Read, Split}};
 use std::time::Duration;
 
+// Possibly used for advancing networking in future
+use default_net; 
 
 const DEBUG:bool = true;
 
