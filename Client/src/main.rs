@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::net::TcpStream;
 use std::io::{Read, Write};
 use std::thread;
@@ -18,7 +19,8 @@ struct GlobalPlayerDetails {
 struct LocalPlayerDetails {
     name: String,
     position: [f32; 2],
-    message: String
+    recent_bullet_position_and_direction: [f32; 3], 
+    message: String,
 }
 
 #[derive(Clone, Debug)]
@@ -27,11 +29,22 @@ struct PlayersMessage {
     msg: String
 }
 
+#[derive(Clone, Debug)]
+struct PlayersBullet {
+    players_name: String,
+    xy: [f32;2],
+    direction: f32,
+    speed: f32
+}
+
 /* GLOBALS & CONSTS */
-static mut LOCAL_DETAILS:LocalPlayerDetails = LocalPlayerDetails {name: (String::new()), position: ([0.0, 0.0]), message: (String::new())};
+static mut LOCAL_DETAILS:LocalPlayerDetails = LocalPlayerDetails {name: (String::new()), position: ([0.0, 0.0]), recent_bullet_position_and_direction: ([0.0, 0.0, 0.0]), message: (String::new())};
 static mut PLAYERS_DETAILS:Vec<GlobalPlayerDetails> = Vec::new();
 static mut PLAYERS_MESSAGES:Vec<PlayersMessage> = Vec::new();
 static mut CHAT_LOG:Vec<String> = Vec::new();
+static mut ACTIVE_BULLETS:Vec<PlayersBullet> = Vec::new();
+
+const UNSET_BULLET:[f32; 3] = [f32::MAX; 3];
 
 const MOVEMENT_SPEED: f32 = 2.0;
 const SCREEN_SIZE:[i32; 2] = [900, 720]; 
@@ -45,16 +58,19 @@ static mut LOCAL_DESIRES_CONNECTED:bool = true;
 /* TETRA */
 struct GameState {
     // Meshes
-    map: Mesh,
+    mouse_shape: Mesh,
+    map_shape: Mesh,
     map_rect: Rectangle<f32>,
     player_shape: Mesh,  
-    chat_box: Mesh, 
+    chat_box_shape: Mesh, 
     chat_box_rect: Rectangle<f32>,
-    chat_box_line: Mesh,
+    chat_box_line_shape: Mesh,
+    bullet_shape: Mesh,
+    bullet_rect: Rectangle<f32>,
+//    current_bullet_position: [f32; 2],
 
     text: Text,
     chat_mode: bool,
-    
     
     local_player_position: [f32; 2],  
     local_player_message: String,
@@ -65,27 +81,34 @@ impl GameState {
     fn new(ctx: &mut Context) -> tetra::Result<GameState> {
         let maps_rectangle = Rectangle::new(100.0, 100.0, 2000.0, 2000.0);
         let chat_box_rectangle = Rectangle::new(0.0, 0.0, SCREEN_SIZE[0] as f32, 300.0);
-        
+        let bullet_rectangle = Rectangle::new(0.0, 0.0, 25.0, 25.0);
+
         Ok(GameState {  
-            map: GeometryBuilder::new()
+            mouse_shape: Mesh::rectangle(ctx, ShapeStyle::Fill, Rectangle::new(0.0, 0.0, 25.0, 25.0))?,
+
+            map_shape: GeometryBuilder::new()
             .set_color(Color::rgb(0.4, 0.6, 0.4))
             .rectangle(ShapeStyle::Fill, maps_rectangle)?
             .build_mesh(ctx)?,        
             map_rect: maps_rectangle,
             player_shape: Mesh::circle(ctx, ShapeStyle::Stroke(10.0), Vec2::zero(), 10.0)?,
-            chat_box: GeometryBuilder::new()
+            chat_box_shape: GeometryBuilder::new()
             .set_color(Color::rgba(0.3, 0.3, 0.3, 0.5))
             .rectangle(ShapeStyle::Fill, chat_box_rectangle)?
             .set_color(Color::rgb(0.0,0.0,0.0,))
             .rectangle(ShapeStyle::Stroke(5.0), Rectangle::new(0.0, 0.0, SCREEN_SIZE[0] as f32, 300.0))?
             .build_mesh(ctx)?,
             chat_box_rect: chat_box_rectangle,
-            chat_box_line: GeometryBuilder::new()
+            chat_box_line_shape: GeometryBuilder::new()
             .set_color(Color::rgba(0.0, 0.0, 0.0, 0.4))
             .rectangle(ShapeStyle::Fill, Rectangle::new(2.5, 0.0, chat_box_rectangle.width - 5.0, TEXT_SIZE+10.0))?
             .build_mesh(ctx)?,
-
-            // Cant seem to find file
+            bullet_shape: Mesh::rectangle(ctx, ShapeStyle::Fill, bullet_rectangle)?,
+            bullet_rect: bullet_rectangle,
+            
+            // Local players latest bullet
+           // current_bullet_position: UNSET_BULLET,
+            
             text: Text::new("-", Font::vector(ctx, "./res/style1.ttf", TEXT_SIZE)?),
             chat_mode: false,
 
@@ -100,16 +123,18 @@ impl State for GameState {
     fn draw(&mut self, ctx: &mut Context) -> tetra::Result {
         graphics::clear(ctx, Color::rgb(0.43, 0.24, 0.51));
         
+    
+
         // Draw Arena
-        self.map.draw(ctx, Vec2::from([0.0 - self.scroll[0], 0.0 - self.scroll[1]]));
+        self.map_shape.draw(ctx, Vec2::from([0.0 - self.scroll[0], 0.0 - self.scroll[1]]));
 
         // Draw Local Player
         self.player_shape.draw(ctx, Vec2::from([self.local_player_position[0] - self.scroll[0], self.local_player_position[1] - self.scroll[1]]));
 
         if self.chat_mode {
             // Draw Chat-box
-            self.chat_box.draw(ctx, Vec2::new(0.0, 0.0));
-            self.chat_box_line.draw(ctx, Vec2::new( self.chat_box_rect.x, self.chat_box_rect.height - TEXT_SIZE - 10.0));
+            self.chat_box_shape.draw(ctx, Vec2::new(0.0, 0.0));
+            self.chat_box_line_shape.draw(ctx, Vec2::new( self.chat_box_rect.x, self.chat_box_rect.height - TEXT_SIZE - 10.0));
             // Draw local message currently typing in
             self.text.set_content(self.local_player_message.as_str());
             self.text.draw(ctx, Vec2::new(13.0, self.chat_box_rect.height - TEXT_SIZE - 7.0));
@@ -124,25 +149,33 @@ impl State for GameState {
                     self.text.draw(ctx, Vec2::new(
                         13.0,
                         y - 3.0
-                        ));
+                    ));
                 }     
             }
         }
         unsafe {
             // Draw Other Players
-            for (index, player) in PLAYERS_DETAILS.clone().iter().enumerate() {
+            let other_players_details = PLAYERS_DETAILS.clone();
+            for player in other_players_details.iter() {
                 let mut xy:Vec2<f32> = Vec2::from(player.position);
                 xy[0] = xy[0] - self.scroll[0];
                 xy[1] = xy[1] - self.scroll[1];
-
                 self.player_shape.draw(ctx, Vec2::from([xy.x, xy.y]));
               
-                
                 self.text.set_content(player.name.clone());
                 // self.text.set_max_width(Some(50.0));
                 self.text.draw(ctx, Vec2::from([xy[0] - ((player.name.len() as f32 * TEXT_SIZE)/2.0), xy[1] - 28.0]));
             }
+
+            // Draw Other Players Bullets
+            let current_active_bullets = ACTIVE_BULLETS.clone();
+            for bullet in current_active_bullets.iter() {
+                self.bullet_shape.draw(ctx, Vec2::from([bullet.xy[0] - self.scroll[0], bullet.xy[1] - self.scroll[1]]));
+            }
         }
+
+        // Draw Mouse
+        self.mouse_shape.draw(ctx, input::get_mouse_position(ctx));
 
         Ok(())
     }  
@@ -167,6 +200,15 @@ impl State for GameState {
             self.local_player_position[0] += MOVEMENT_SPEED + speed;
         }
 
+        if input::is_mouse_button_released(ctx, input::MouseButton::Left) {
+            // Local shoots new bullet
+            unsafe {
+                LOCAL_DETAILS.recent_bullet_position_and_direction = [self.local_player_position[0], self.local_player_position[1], 3.0];
+               // println!("{:?}", LOCAL_DETAILS.recent_bullet_position_and_direction);
+                ACTIVE_BULLETS.push(PlayersBullet { players_name: ("[me]".to_string()), xy: (self.local_player_position), direction: (3.0), speed: (10.0) });
+            }
+        }
+
         if input::is_key_down(ctx, Key::Escape) {
             unsafe {
                 //LOCAL_DESIRES_CONNECTED = false;
@@ -184,10 +226,10 @@ impl State for GameState {
             self.local_player_position[1] = self.map_rect.y
         }
         if self.local_player_position[0] >= (self.map_rect.x + self.map_rect.width) {
-            self.local_player_position[0] = (self.map_rect.x + self.map_rect.width)
+            self.local_player_position[0] = self.map_rect.x + self.map_rect.width
         }
         if self.local_player_position[1] >= (self.map_rect.y + self.map_rect.height) {
-            self.local_player_position[1] = (self.map_rect.y + self.map_rect.height)
+            self.local_player_position[1] = self.map_rect.y + self.map_rect.height
         }
 
 
@@ -274,8 +316,8 @@ fn server_handle() {
                     let local_details_copy = LOCAL_DETAILS.clone();
                     // Clear local message content
                     LOCAL_DETAILS.message = "".to_string();
+                    LOCAL_DETAILS.recent_bullet_position_and_direction = UNSET_BULLET;
                     send_val = get_string_from_local_details(local_details_copy);
-
                 }
                 let _ = stream.write(send_val.as_bytes());
                 
@@ -291,9 +333,10 @@ fn server_handle() {
 /// Prepares string which will be sent over to the server \
 /// Returns prepared String
 fn get_string_from_local_details(local_player_details: LocalPlayerDetails) -> String {
-    format!("{}:{},{}:{}~ ",
+    format!("{}:{},{}:{},{},{}:{}~ ",
     local_player_details.name,
     local_player_details.position[0], local_player_details.position[1], 
+    local_player_details.recent_bullet_position_and_direction[0], local_player_details.recent_bullet_position_and_direction[1], local_player_details.recent_bullet_position_and_direction[2],
     local_player_details.message
     )  
 }
@@ -325,6 +368,17 @@ fn get_players_from_string(data: String) -> Vec<GlobalPlayerDetails> {
                     1 => {player_details.name = j.to_string();}
                     2 => {player_details.position = extract_player_position(j.trim().to_string());}
                     3 => { 
+                        match extract_player_bullet_info(j.trim().to_string()) {
+                            Some(r) => {
+                                println!("Bullet info: {:?}", r);
+                                unsafe {
+                                    ACTIVE_BULLETS.push(r);
+                                }
+                            }
+                            None => {}
+                        }
+                    }
+                    4 => { 
                         players_message = j.to_string();
                     }
                     _ => {println!("Corrupt data received? - {}", data); data_is_corrupt = true;}
@@ -357,7 +411,7 @@ fn get_players_from_string(data: String) -> Vec<GlobalPlayerDetails> {
     }
     ret
 }
-/// EXTRACTS X,Y VALUES FROM STRING 
+/// EXTRACTS X,Y VALUES FROM STRING \
 /// Returns: [x, y] as [f32; 2]
 fn extract_player_position(data:String) -> [f32; 2] {
     let mut ret:[f32; 2] = [0.0; 2];
@@ -376,8 +430,44 @@ fn extract_player_position(data:String) -> [f32; 2] {
         let parse_result = val.parse::<f32>();
         match parse_result {
             Ok(parse_val) => {ret[index] = parse_val;}
-            Err(e) => {}//println!("{}", e)}
+            Err(_e) => {}//println!("{}", e)}
         }
     }
     ret  
+}
+/// EXTRACTS NEW BULLETS X,Y,DIRECTION VALUES FROM STRING \
+/// Returns: PlayersBullet { players_name, xy, direction, speed }
+fn extract_player_bullet_info(data:String) -> Option<PlayersBullet> {
+    let mut ret:PlayersBullet = PlayersBullet { players_name: ("".to_string()), xy: ([0.0; 2]), direction: (0.0), speed: (10.0) };
+    // x, y, direction
+    let mut xyd_values:[f32; 3] = [f32::MAX; 3]; 
+
+    let x_y_direction_values = data.split(',');
+    if x_y_direction_values.clone().count() == 3 {
+        for (index, val) in x_y_direction_values.into_iter().enumerate() {
+            let parse_result = val.parse::<f32>();
+            match parse_result {
+                Ok(r) => { 
+                    if r == f32::MAX {
+                        // Not a new bullet value - A normal bullet should never get to this value
+                        return None
+                    }
+                    else {
+                        xyd_values[index] = r;
+                    }
+                }
+                Err(e) => {println!("{}", e)}
+            }
+        }
+    }
+    else {
+        println!("Bullet data came through corrupt? - {}", data);
+        return None
+    }
+
+    ret.xy = [xyd_values[0], xyd_values[1]];
+    ret.direction = xyd_values[2];
+    ret.speed = 10.0;
+
+    Some(ret)
 }

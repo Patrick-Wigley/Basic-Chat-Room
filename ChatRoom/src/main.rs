@@ -11,13 +11,14 @@ struct PlayerDetails {
     id: usize,
     name: String,
     pos: String,
+    bullet_info: String,
     msg: String
 }
 
 static mut PLAYERS_DETAILS:Vec<PlayerDetails> = Vec::new();
 const MAX_USERS:usize = 5;
 static mut ACTIVE_PLAYERS_COUNT:usize = 0;
-
+const UNSET_BULLET:String = String::new();
 const BYTES_PER_CLIENT_MSG:usize = 455;
 
 // KEY:
@@ -91,14 +92,15 @@ fn handle_connection(mut client: TcpStream) {
                     Some(cutoff) => { 
                         unsafe {
                             let actual_msg = msg[0..cutoff].to_string(); 
-                            
+                       
                             // Split values from message into players values
                             let players_details = actual_msg.split(":");
                             for (index, val) in players_details.into_iter().enumerate() {
                                 match index {
                                     0 => { PLAYERS_DETAILS[players_id].name = val.to_string(); }
                                     1 => { PLAYERS_DETAILS[players_id].pos = val.to_string(); }
-                                    2 => { 
+                                    2 => { PLAYERS_DETAILS[players_id].bullet_info = val.to_string(); }
+                                    3 => { 
                                         if val.matches("'").count() >= 2 {
                                             if val != "''" {
                                                 println!("[{}] {}", PLAYERS_DETAILS[players_id].name, val);
@@ -123,7 +125,7 @@ fn handle_connection(mut client: TcpStream) {
 
 fn main() {
     unsafe {
-        PLAYERS_DETAILS.resize(MAX_USERS, PlayerDetails { id: (usize::MAX), name: ("|".to_string()), pos: ("0.0,0.0".to_string()), msg: ("".to_string()) });
+        PLAYERS_DETAILS.resize(MAX_USERS, PlayerDetails { id: (usize::MAX), name: ("|".to_string()), pos: ("0.0,0.0".to_string()), bullet_info: (UNSET_BULLET), msg: ("".to_string()) });
     }
     let listener_result = TcpListener::bind("127.0.0.1:80");
 
@@ -161,10 +163,11 @@ fn main() {
 fn stringvec_to_string(arr:Vec<PlayerDetails>) -> String {
     let mut ret:String = "".to_string();
     for player in arr.iter() {
-        ret.push_str(format!("{}:{}:{}:{};", 
+        ret.push_str(format!("{}:{}:{}:{}:{};", 
         player.id,
         player.name, 
         player.pos, 
+        player.bullet_info,
         player.msg
         ).as_str());
     }
