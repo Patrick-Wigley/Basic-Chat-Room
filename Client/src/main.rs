@@ -2,10 +2,11 @@ use std::error::Error;
 use std::net::TcpStream;
 use std::io::{Read, Write};
 use std::thread;
+use std::time::Duration;
 
 use tetra::{graphics::{mesh::{Mesh, ShapeStyle, GeometryBuilder}, self, text::{Font, Text}, Color, Rectangle},
             input::{self, Key}, Context, ContextBuilder, State};
-use tetra::math::{Vec2};
+use tetra::math::{Vec2, Rect};
 
 
 #[derive(Clone, Debug)]
@@ -32,7 +33,7 @@ struct PlayersMessage {
 #[derive(Clone, Debug)]
 struct PlayersBullet {
     players_name: String,
-    xy: [f32;2],
+    rect: Rectangle,
     direction: f32,
     speed: f32
 }
@@ -54,6 +55,10 @@ const MAX_PLAYERS:usize = 20;
 
 static mut LOCAL_DESIRES_CONNECTED:bool = true;
 
+
+const PLAYER_WIDTH:f32 = 25.0;
+const BULLET_WIDTH:f32 = 10.0;
+static mut MAPS_RECTANGLE:Rectangle = Rectangle::new(0.0, 0.0, 0.0, 0.0);
 
 /* TETRA */
 struct GameState {
@@ -79,19 +84,24 @@ struct GameState {
 }
 impl GameState {
     fn new(ctx: &mut Context) -> tetra::Result<GameState> {
-        let maps_rectangle = Rectangle::new(100.0, 100.0, 2000.0, 2000.0);
+        let maps_rectangle_stack = Rectangle::new(100.0, 100.0, 2000.0, 2000.0);
         let chat_box_rectangle = Rectangle::new(0.0, 0.0, SCREEN_SIZE[0] as f32, 300.0);
         let bullet_rectangle = Rectangle::new(0.0, 0.0, 25.0, 25.0);
+
+        unsafe {
+            // Used during collision detection thread
+            MAPS_RECTANGLE = maps_rectangle_stack;
+        }
 
         Ok(GameState {  
             mouse_shape: Mesh::rectangle(ctx, ShapeStyle::Fill, Rectangle::new(0.0, 0.0, 25.0, 25.0))?,
 
             map_shape: GeometryBuilder::new()
             .set_color(Color::rgb(0.4, 0.6, 0.4))
-            .rectangle(ShapeStyle::Fill, maps_rectangle)?
+            .rectangle(ShapeStyle::Fill, maps_rectangle_stack)?
             .build_mesh(ctx)?,        
-            map_rect: maps_rectangle,
-            player_shape: Mesh::circle(ctx, ShapeStyle::Stroke(10.0), Vec2::zero(), 10.0)?,
+            map_rect: maps_rectangle_stack,
+            player_shape: Mesh::circle(ctx, ShapeStyle::Stroke(10.0), Vec2::zero(), PLAYER_WIDTH)?,
             chat_box_shape: GeometryBuilder::new()
             .set_color(Color::rgba(0.3, 0.3, 0.3, 0.5))
             .rectangle(ShapeStyle::Fill, chat_box_rectangle)?
@@ -123,8 +133,6 @@ impl State for GameState {
     fn draw(&mut self, ctx: &mut Context) -> tetra::Result {
         graphics::clear(ctx, Color::rgb(0.43, 0.24, 0.51));
         
-    
-
         // Draw Arena
         self.map_shape.draw(ctx, Vec2::from([0.0 - self.scroll[0], 0.0 - self.scroll[1]]));
 
@@ -170,7 +178,7 @@ impl State for GameState {
             // Draw Other Players Bullets
             let current_active_bullets = ACTIVE_BULLETS.clone();
             for bullet in current_active_bullets.iter() {
-                self.bullet_shape.draw(ctx, Vec2::from([bullet.xy[0] - self.scroll[0], bullet.xy[1] - self.scroll[1]]));
+                self.bullet_shape.draw(ctx, Vec2::from([bullet.rect.x - self.scroll[0], bullet.rect.y - self.scroll[1]]));
             }
         }
 
@@ -205,7 +213,14 @@ impl State for GameState {
             unsafe {
                 LOCAL_DETAILS.recent_bullet_position_and_direction = [self.local_player_position[0], self.local_player_position[1], 3.0];
                // println!("{:?}", LOCAL_DETAILS.recent_bullet_position_and_direction);
-                ACTIVE_BULLETS.push(PlayersBullet { players_name: ("[me]".to_string()), xy: (self.local_player_position), direction: (3.0), speed: (10.0) });
+                ACTIVE_BULLETS.push(
+                    PlayersBullet { 
+                        players_name: ("[me]".to_string()), 
+                        rect: (Rectangle::new(self.local_player_position[0], self.local_player_position[1], BULLET_WIDTH, BULLET_WIDTH)), 
+                        direction: (3.0), 
+                        speed: (10.0) 
+                    }
+                );
             }
         }
 
@@ -278,7 +293,56 @@ fn main() {
         PLAYERS_MESSAGES.resize(MAX_PLAYERS, PlayersMessage {id:(usize::MAX), msg:("".to_string())})
     }
     thread::spawn(server_handle);
+    thread::spawn(bullet_collision_detection);
     let _ = setup_window();    
+}
+
+const X:usize = 0;
+const Y:usize = 1;
+
+/* COLLISION DETECTION HANDLE */
+/// This function processes the active bullets on this local client
+fn bullet_collision_detection() {
+    loop {
+        let current_local_position:[f32; 2];
+        let mut current_active_bullets:Vec<PlayersBullet>;
+        let maps_rect:Rectangle;
+        unsafe {
+            current_local_position = LOCAL_DETAILS.position.clone();
+            current_active_bullets = ACTIVE_BULLETS.clone();
+            maps_rect = MAPS_RECTANGLE
+        }
+        let current_local_rect:Rectangle = Rectangle::new(current_local_position[0], current_local_position[1], PLAYER_WIDTH, PLAYER_WIDTH);
+
+
+        let mut bullets_to_remove:Vec<usize> = Vec::new();
+        for (index, bullet) in current_active_bullets.clone().iter().enumerate() {
+            // Update Bullets Position
+            
+            current_active_bullets[index].rect.x -= 1.3;
+
+            
+            if current_local_rect.intersects(&bullet.rect) {
+                // Bullet has hit player
+               // bullets_to_remove.push(index);
+            }
+            else if !(bullet.rect.intersects(&maps_rect)) {
+                // Bullet is out of bounds of arena
+                bullets_to_remove.push(index);
+                println!("Out of bounds: {:?}", bullet.rect);
+            }
+            
+        }
+        for i in bullets_to_remove {
+            current_active_bullets.remove(i);
+        }
+
+        // Set local data of ACTIVE_BULLETS to new processed arr of bullets
+        unsafe {
+            ACTIVE_BULLETS = current_active_bullets.clone();
+        }
+        // thread::sleep(Duration::from_millis(1));
+    }
 }
 
 /* SERVER COMMUNICATIONS */
@@ -438,7 +502,7 @@ fn extract_player_position(data:String) -> [f32; 2] {
 /// EXTRACTS NEW BULLETS X,Y,DIRECTION VALUES FROM STRING \
 /// Returns: PlayersBullet { players_name, xy, direction, speed }
 fn extract_player_bullet_info(data:String) -> Option<PlayersBullet> {
-    let mut ret:PlayersBullet = PlayersBullet { players_name: ("".to_string()), xy: ([0.0; 2]), direction: (0.0), speed: (10.0) };
+    let mut ret:PlayersBullet = PlayersBullet { players_name: ("".to_string()), rect: (Rectangle::new(0.0, 0.0, BULLET_WIDTH, BULLET_WIDTH)), direction: (0.0), speed: (10.0) };
     // x, y, direction
     let mut xyd_values:[f32; 3] = [f32::MAX; 3]; 
 
@@ -465,7 +529,8 @@ fn extract_player_bullet_info(data:String) -> Option<PlayersBullet> {
         return None
     }
 
-    ret.xy = [xyd_values[0], xyd_values[1]];
+    ret.rect.x = xyd_values[0]; 
+    ret.rect.y = xyd_values[1];
     ret.direction = xyd_values[2];
     ret.speed = 10.0;
 
