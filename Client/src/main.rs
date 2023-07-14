@@ -1,11 +1,11 @@
-use std::error::Error;
 use std::net::TcpStream;
 use std::io::{Read, Write};
-use std::thread;
+use std::{thread, sync::{Arc, Mutex, RwLock}};
 use std::time::Duration;
 
+
 use tetra::{graphics::{mesh::{Mesh, ShapeStyle, GeometryBuilder}, self, text::{Font, Text}, Color, Rectangle},
-            input::{self, Key}, Context, ContextBuilder, State};
+input::{self, Key}, Context, ContextBuilder, State};
 use tetra::math::{Vec2, Rect};
 
 
@@ -43,7 +43,9 @@ static mut LOCAL_DETAILS:LocalPlayerDetails = LocalPlayerDetails {name: (String:
 static mut PLAYERS_DETAILS:Vec<GlobalPlayerDetails> = Vec::new();
 static mut PLAYERS_MESSAGES:Vec<PlayersMessage> = Vec::new();
 static mut CHAT_LOG:Vec<String> = Vec::new();
-static mut ACTIVE_BULLETS:Vec<PlayersBullet> = Vec::new();
+
+//static mut ACTIVE_BULLETS:Mutex<Vec<PlayersBullet>> = Mutex::new(Vec::new());
+static mut NEW_BULLETS_BUF:Mutex<Vec<PlayersBullet>> = Mutex::new(Vec::new());
 
 const UNSET_BULLET:[f32; 3] = [f32::MAX; 3];
 
@@ -54,7 +56,6 @@ const TEXT_SIZE:f32 = 17.0;
 const MAX_PLAYERS:usize = 20;
 
 static mut LOCAL_DESIRES_CONNECTED:bool = true;
-
 
 const PLAYER_WIDTH:f32 = 25.0;
 const BULLET_WIDTH:f32 = 10.0;
@@ -73,6 +74,8 @@ struct GameState {
     bullet_shape: Mesh,
     bullet_rect: Rectangle<f32>,
 //    current_bullet_position: [f32; 2],
+
+    current_active_bullets: Vec<PlayersBullet>,
 
     text: Text,
     chat_mode: bool,
@@ -116,6 +119,8 @@ impl GameState {
             bullet_shape: Mesh::rectangle(ctx, ShapeStyle::Fill, bullet_rectangle)?,
             bullet_rect: bullet_rectangle,
             
+
+            current_active_bullets: Vec::new(),
             // Local players latest bullet
            // current_bullet_position: UNSET_BULLET,
             
@@ -176,18 +181,74 @@ impl State for GameState {
             }
 
             // Draw Other Players Bullets
-            let current_active_bullets = ACTIVE_BULLETS.clone();
-            for bullet in current_active_bullets.iter() {
+            // let current_active_bullets_mutex = ACTIVE_BULLETS.lock().unwrap();
+            // let current_active_bullets = current_active_bullets_mutex.clone();
+            // std::mem::drop(current_active_bullets_mutex);
+            // Guard drops once 'unsafe {}' scope here is finished
+
+            for bullet in self.current_active_bullets.iter() {
                 self.bullet_shape.draw(ctx, Vec2::from([bullet.rect.x - self.scroll[0], bullet.rect.y - self.scroll[1]]));
             }
+            //println!("{:?}", current_active_bullets);
         }
+        
 
         // Draw Mouse
         self.mouse_shape.draw(ctx, input::get_mouse_position(ctx));
 
-        Ok(())
+        Ok(()) 
     }  
     fn update(&mut self, ctx: &mut Context) -> tetra::Result {
+
+        // let current_active_bullets;
+        // unsafe {
+        //     let current_active_bullets_mutex = ACTIVE_BULLETS.lock().unwrap(); 
+        //     current_active_bullets = current_active_bullets_mutex.clone();
+        //     // Guard drops once 'unsafe {}' scope here is finished
+        // }
+
+        if input::is_mouse_button_released(ctx, input::MouseButton::Left) {
+            // Local shoots new bullet
+            
+            self.current_active_bullets.push(
+                PlayersBullet { 
+                    players_name: ("[me]".to_string()), 
+                    rect: (Rectangle::new(self.local_player_position[0], self.local_player_position[1], BULLET_WIDTH, BULLET_WIDTH)), 
+                    direction: (3.0), 
+                    speed: (10.0) 
+                }
+            );        
+            unsafe {
+                LOCAL_DETAILS.recent_bullet_position_and_direction = [self.local_player_position[0], self.local_player_position[1], 3.0];  
+            }
+        }
+
+        // Bullet Collision Detection
+        let current_local_rect:Rectangle = Rectangle::new(self.local_player_position[0], self.local_player_position[1], PLAYER_WIDTH, PLAYER_WIDTH);
+        let mut bullets_to_remove:Vec<usize> = Vec::new();
+        for (index, bullet) in self.current_active_bullets.clone().iter().enumerate() {
+            // Update Bullets Position
+            self.current_active_bullets[index].rect.x -= 1.3;
+    
+            
+            if current_local_rect.intersects(&bullet.rect) {
+                // Bullet has hit player
+                // bullets_to_remove.push(index);
+            }
+            else if !(bullet.rect.intersects(&self.map_rect)) {
+                // Bullet is out of bounds of arena
+                bullets_to_remove.push(index);
+              //  if DEBUG { println!("Out of bounds: {:?}", bullet.rect); }
+            }
+            
+        }
+        for i in bullets_to_remove {
+            self.current_active_bullets.remove(i);
+        }
+    
+
+
+
         self.scroll[0] += ((self.local_player_position[0] - self.scroll[0]) - (SCREEN_SIZE[0] as f32/2.0) as f32)/10.0;
         self.scroll[1] += ((self.local_player_position[1] - self.scroll[1]) - (SCREEN_SIZE[1] as f32/2.0))/10.0;
         
@@ -208,21 +269,7 @@ impl State for GameState {
             self.local_player_position[0] += MOVEMENT_SPEED + speed;
         }
 
-        if input::is_mouse_button_released(ctx, input::MouseButton::Left) {
-            // Local shoots new bullet
-            unsafe {
-                LOCAL_DETAILS.recent_bullet_position_and_direction = [self.local_player_position[0], self.local_player_position[1], 3.0];
-               // println!("{:?}", LOCAL_DETAILS.recent_bullet_position_and_direction);
-                ACTIVE_BULLETS.push(
-                    PlayersBullet { 
-                        players_name: ("[me]".to_string()), 
-                        rect: (Rectangle::new(self.local_player_position[0], self.local_player_position[1], BULLET_WIDTH, BULLET_WIDTH)), 
-                        direction: (3.0), 
-                        speed: (10.0) 
-                    }
-                );
-            }
-        }
+       
 
         if input::is_key_down(ctx, Key::Escape) {
             unsafe {
@@ -274,6 +321,16 @@ impl State for GameState {
         // Setting global var to be used in 'server_handle' thread
         unsafe {
             LOCAL_DETAILS.position = self.local_player_position.clone();
+            
+            let mut new_bullets_mutex = NEW_BULLETS_BUF.lock().unwrap();
+            let new_bullets = new_bullets_mutex.clone();
+            new_bullets_mutex.clear();
+            std::mem::drop(new_bullets_mutex);
+            
+            
+            for new_bullet in new_bullets {
+                self.current_active_bullets.push(new_bullet);
+            }
         }
         Ok(())
     }
@@ -293,57 +350,12 @@ fn main() {
         PLAYERS_MESSAGES.resize(MAX_PLAYERS, PlayersMessage {id:(usize::MAX), msg:("".to_string())})
     }
     thread::spawn(server_handle);
-    thread::spawn(bullet_collision_detection);
+   //  thread::spawn(bullet_collision_detection);
     let _ = setup_window();    
 }
 
 const X:usize = 0;
 const Y:usize = 1;
-
-/* COLLISION DETECTION HANDLE */
-/// This function processes the active bullets on this local client
-fn bullet_collision_detection() {
-    loop {
-        let current_local_position:[f32; 2];
-        let mut current_active_bullets:Vec<PlayersBullet>;
-        let maps_rect:Rectangle;
-        unsafe {
-            current_local_position = LOCAL_DETAILS.position.clone();
-            current_active_bullets = ACTIVE_BULLETS.clone();
-            maps_rect = MAPS_RECTANGLE
-        }
-        let current_local_rect:Rectangle = Rectangle::new(current_local_position[0], current_local_position[1], PLAYER_WIDTH, PLAYER_WIDTH);
-
-
-        let mut bullets_to_remove:Vec<usize> = Vec::new();
-        for (index, bullet) in current_active_bullets.clone().iter().enumerate() {
-            // Update Bullets Position
-            
-            current_active_bullets[index].rect.x -= 1.3;
-
-            
-            if current_local_rect.intersects(&bullet.rect) {
-                // Bullet has hit player
-               // bullets_to_remove.push(index);
-            }
-            else if !(bullet.rect.intersects(&maps_rect)) {
-                // Bullet is out of bounds of arena
-                bullets_to_remove.push(index);
-                println!("Out of bounds: {:?}", bullet.rect);
-            }
-            
-        }
-        for i in bullets_to_remove {
-            current_active_bullets.remove(i);
-        }
-
-        // Set local data of ACTIVE_BULLETS to new processed arr of bullets
-        unsafe {
-            ACTIVE_BULLETS = current_active_bullets.clone();
-        }
-        // thread::sleep(Duration::from_millis(1));
-    }
-}
 
 /* SERVER COMMUNICATIONS */
 /// TCP Stream for current client & server communications of data \ 
@@ -378,10 +390,11 @@ fn server_handle() {
                         break;
                     }
                     let local_details_copy = LOCAL_DETAILS.clone();
+
+                    send_val = get_string_from_local_details(local_details_copy);
                     // Clear local message content
                     LOCAL_DETAILS.message = "".to_string();
                     LOCAL_DETAILS.recent_bullet_position_and_direction = UNSET_BULLET;
-                    send_val = get_string_from_local_details(local_details_copy);
                 }
                 let _ = stream.write(send_val.as_bytes());
                 
@@ -408,7 +421,8 @@ fn get_string_from_local_details(local_player_details: LocalPlayerDetails) -> St
 /// Returns processed Vector
 fn get_players_from_string(data: String) -> Vec<GlobalPlayerDetails> {
     let mut ret: Vec<GlobalPlayerDetails> = Vec::new();
-    
+    let mut new_bullets_gathered: Vec<PlayersBullet> = Vec::new();
+
     let player_values = data.split(";");
     for val in player_values.into_iter() {
         if !val.contains("|") && !val.is_empty() {
@@ -434,10 +448,8 @@ fn get_players_from_string(data: String) -> Vec<GlobalPlayerDetails> {
                     3 => { 
                         match extract_player_bullet_info(j.trim().to_string()) {
                             Some(r) => {
-                                println!("Bullet info: {:?}", r);
-                                unsafe {
-                                    ACTIVE_BULLETS.push(r);
-                                }
+                               // if DEBUG {println!("Bullet info: {:?}", r); }
+                                new_bullets_gathered.push(r);
                             }
                             None => {}
                         }
@@ -454,7 +466,7 @@ fn get_players_from_string(data: String) -> Vec<GlobalPlayerDetails> {
                         // stop spamming messages
                         // If players recent message is same as this message received
                         if !(PLAYERS_MESSAGES[player_details.id].msg == players_message){
-                            println!("[{}]{}: {}", player_details.id, player_details.name, players_message);
+                         //   if DEBUG { println!("[{}]{}: {}", player_details.id, player_details.name, players_message); }
                             // Push to chat log
                             if CHAT_LOG.len() >= 20 {
                                 CHAT_LOG.remove(0);
@@ -473,6 +485,15 @@ fn get_players_from_string(data: String) -> Vec<GlobalPlayerDetails> {
             ret.push(player_details);
         }
     }
+    // Push new collected bullets to buffer
+    unsafe {
+        let mut new_bullets_buf_mutex = NEW_BULLETS_BUF.lock().unwrap();
+        for new_bullet in new_bullets_gathered {
+            new_bullets_buf_mutex.push(new_bullet);
+        }
+        // Guard drops once 'unsafe {}' scope here is finished
+    }
+
     ret
 }
 /// EXTRACTS X,Y VALUES FROM STRING \
