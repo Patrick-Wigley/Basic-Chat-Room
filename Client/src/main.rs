@@ -68,7 +68,8 @@ struct GameState {
     mouse_shape: Mesh,
     map_shape: Mesh,
     map_rect: Rectangle<f32>,
-    player_shape: Mesh,  
+    player_shape: Mesh,
+    player_rect: Rectangle<f32>,  
     chat_box_shape: Mesh, 
     chat_box_rect: Rectangle<f32>,
     chat_box_line_shape: Mesh,
@@ -90,8 +91,8 @@ impl GameState {
     fn new(ctx: &mut Context) -> tetra::Result<GameState> {
         let maps_rectangle_stack = Rectangle::new(100.0, 100.0, 2000.0, 2000.0);
         let chat_box_rectangle = Rectangle::new(0.0, 0.0, SCREEN_SIZE[0] as f32, 300.0);
-        let bullet_rectangle = Rectangle::new(0.0, 0.0, 25.0, 25.0);
-
+        let bullet_rectangle = Rectangle::new(0.0, 0.0, 15.0, 15.0);
+        let player_rectangle = Rectangle::new(0.0, 0.0, PLAYER_WIDTH, PLAYER_WIDTH);
         unsafe {
             // Used during collision detection thread
             MAPS_RECTANGLE = maps_rectangle_stack;
@@ -105,7 +106,10 @@ impl GameState {
             .rectangle(ShapeStyle::Fill, maps_rectangle_stack)?
             .build_mesh(ctx)?,        
             map_rect: maps_rectangle_stack,
+            
             player_shape: Mesh::circle(ctx, ShapeStyle::Stroke(10.0), Vec2::zero(), PLAYER_WIDTH)?,
+            player_rect: player_rectangle,
+
             chat_box_shape: GeometryBuilder::new()
             .set_color(Color::rgba(0.3, 0.3, 0.3, 0.5))
             .rectangle(ShapeStyle::Fill, chat_box_rectangle)?
@@ -117,6 +121,7 @@ impl GameState {
             .set_color(Color::rgba(0.0, 0.0, 0.0, 0.4))
             .rectangle(ShapeStyle::Fill, Rectangle::new(2.5, 0.0, chat_box_rectangle.width - 5.0, TEXT_SIZE+10.0))?
             .build_mesh(ctx)?,
+
             bullet_shape: Mesh::rectangle(ctx, ShapeStyle::Fill, bullet_rectangle)?,
             bullet_rect: bullet_rectangle,
             
@@ -206,8 +211,8 @@ impl State for GameState {
         let mut bullets_to_remove:Vec<usize> = Vec::new();
         for (index, bullet) in self.current_active_bullets.clone().iter().enumerate() {
             // Update Bullets Position
-            self.current_active_bullets[index].rect.x -= f32::cos(self.current_active_bullets[index].direction) * 7.0;
-            self.current_active_bullets[index].rect.y -= f32::sin(self.current_active_bullets[index].direction) * 7.0;
+            self.current_active_bullets[index].rect.x -= f32::cos(self.current_active_bullets[index].direction) * self.current_active_bullets[index].speed;
+            self.current_active_bullets[index].rect.y -= f32::sin(self.current_active_bullets[index].direction) * self.current_active_bullets[index].speed;
             
             if current_local_rect.intersects(&bullet.rect) {
                 // Bullet has hit player
@@ -256,23 +261,19 @@ impl State for GameState {
 
         if input::is_mouse_button_released(ctx, input::MouseButton::Left) {
             // Local shoots new bullet
-            let mut mouse_pos = input::get_mouse_position(ctx);
-            //mouse_pos.x -= self.scroll[0];
-            //mouse_pos.y -= self.scroll[1];
-            //let path = Vec2::angle_between( -Vec2::from(self.local_player_position), -mouse_pos);
-            let mut path = f32::atan2(
-                (self.local_player_position[1] - mouse_pos.y) - self.scroll[1],
-                (self.local_player_position[0] - mouse_pos.x) - self.scroll[0]
+            let mouse_pos = input::get_mouse_position(ctx);
+            let path = f32::atan2(
+                ((self.local_player_position[1] - (self.player_rect.width/2.0)) - mouse_pos.y) - self.scroll[1],
+               ((self.local_player_position[0] - (self.player_rect.width/2.0)) - mouse_pos.x) - self.scroll[0]
             );
            
-            println!("{}", path);
 
             self.current_active_bullets.push(
                 PlayersBullet { 
                     players_name: ("[me]".to_string()), 
                     rect: (Rectangle::new(self.local_player_position[0], self.local_player_position[1], BULLET_WIDTH, BULLET_WIDTH)), 
                     direction: (path), 
-                    speed: (10.0) 
+                    speed: (7.0) 
                 }
             );        
             unsafe {
