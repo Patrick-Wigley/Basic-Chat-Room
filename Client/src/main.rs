@@ -99,7 +99,10 @@ impl GameState {
         }
 
         Ok(GameState {  
-            mouse_shape: Mesh::rectangle(ctx, ShapeStyle::Fill, Rectangle::new(0.0, 0.0, 25.0, 25.0))?,
+            mouse_shape: GeometryBuilder::new() 
+            .set_color(Color::rgb(0.0, 0.0, 1.0))
+            .rectangle(ShapeStyle::Fill, Rectangle::new(0.0, 0.0, 18.0, 18.0))?
+            .build_mesh(ctx)?,
 
             map_shape: GeometryBuilder::new()
             .set_color(Color::rgb(0.4, 0.6, 0.4))
@@ -107,7 +110,7 @@ impl GameState {
             .build_mesh(ctx)?,        
             map_rect: maps_rectangle_stack,
             
-            player_shape: Mesh::circle(ctx, ShapeStyle::Stroke(10.0), Vec2::zero(), PLAYER_WIDTH)?,
+            player_shape: Mesh::circle(ctx, ShapeStyle::Fill, Vec2::zero(), PLAYER_WIDTH)?,
             player_rect: player_rectangle,
 
             chat_box_shape: GeometryBuilder::new()
@@ -122,7 +125,11 @@ impl GameState {
             .rectangle(ShapeStyle::Fill, Rectangle::new(2.5, 0.0, chat_box_rectangle.width - 5.0, TEXT_SIZE+10.0))?
             .build_mesh(ctx)?,
 
-            bullet_shape: Mesh::rectangle(ctx, ShapeStyle::Fill, bullet_rectangle)?,
+            bullet_shape: GeometryBuilder::new()
+            .set_color(Color::rgb(1.0, 0.0, 0.0))
+            .rectangle(ShapeStyle::Fill, bullet_rectangle)?
+            .build_mesh(ctx)?,
+            
             bullet_rect: bullet_rectangle,
             
 
