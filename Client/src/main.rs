@@ -56,6 +56,7 @@ const TEXT_SIZE:f32 = 17.0;
 const MAX_PLAYERS:usize = 20;
 
 static mut LOCAL_DESIRES_CONNECTED:bool = true;
+static mut LOCAL_IS_HIT: bool = false;
 
 const PLAYER_WIDTH:f32 = 25.0;
 const BULLET_WIDTH:f32 = 10.0;
@@ -200,55 +201,39 @@ impl State for GameState {
     }  
     fn update(&mut self, ctx: &mut Context) -> tetra::Result {
 
-        // let current_active_bullets;
-        // unsafe {
-        //     let current_active_bullets_mutex = ACTIVE_BULLETS.lock().unwrap(); 
-        //     current_active_bullets = current_active_bullets_mutex.clone();
-        //     // Guard drops once 'unsafe {}' scope here is finished
-        // }
-
-        if input::is_mouse_button_released(ctx, input::MouseButton::Left) {
-            // Local shoots new bullet
-            
-            self.current_active_bullets.push(
-                PlayersBullet { 
-                    players_name: ("[me]".to_string()), 
-                    rect: (Rectangle::new(self.local_player_position[0], self.local_player_position[1], BULLET_WIDTH, BULLET_WIDTH)), 
-                    direction: (3.0), 
-                    speed: (10.0) 
-                }
-            );        
-            unsafe {
-                LOCAL_DETAILS.recent_bullet_position_and_direction = [self.local_player_position[0], self.local_player_position[1], 3.0];  
-            }
-        }
-
         // Bullet Collision Detection
         let current_local_rect:Rectangle = Rectangle::new(self.local_player_position[0], self.local_player_position[1], PLAYER_WIDTH, PLAYER_WIDTH);
         let mut bullets_to_remove:Vec<usize> = Vec::new();
         for (index, bullet) in self.current_active_bullets.clone().iter().enumerate() {
             // Update Bullets Position
-            self.current_active_bullets[index].rect.x -= 1.3;
-    
+            self.current_active_bullets[index].rect.x -= f32::cos(self.current_active_bullets[index].direction) * 7.0;
+            self.current_active_bullets[index].rect.y -= f32::sin(self.current_active_bullets[index].direction) * 7.0;
             
             if current_local_rect.intersects(&bullet.rect) {
                 // Bullet has hit player
-                // bullets_to_remove.push(index);
+                if self.current_active_bullets[index].players_name != "[me]" {
+                    //   bullets_to_remove.push(index);
+                    unsafe {
+                        LOCAL_IS_HIT = true;
+                    }
+                    self.local_player_position = [0.0; 2];
+                
+                }
+
             }
             else if !(bullet.rect.intersects(&self.map_rect)) {
                 // Bullet is out of bounds of arena
                 bullets_to_remove.push(index);
               //  if DEBUG { println!("Out of bounds: {:?}", bullet.rect); }
             }
-            
         }
+        // Throws error: thread 'main' panicked at 'removal index (is 1) should be < len (is 1)', src\main.rs:224:41
+        let mut removal_offset: usize = 0;
         for i in bullets_to_remove {
-            self.current_active_bullets.remove(i);
+            self.current_active_bullets.remove(i - removal_offset);
+            removal_offset += 1;
         }
     
-
-
-
         self.scroll[0] += ((self.local_player_position[0] - self.scroll[0]) - (SCREEN_SIZE[0] as f32/2.0) as f32)/10.0;
         self.scroll[1] += ((self.local_player_position[1] - self.scroll[1]) - (SCREEN_SIZE[1] as f32/2.0))/10.0;
         
@@ -269,7 +254,31 @@ impl State for GameState {
             self.local_player_position[0] += MOVEMENT_SPEED + speed;
         }
 
-       
+        if input::is_mouse_button_released(ctx, input::MouseButton::Left) {
+            // Local shoots new bullet
+            let mut mouse_pos = input::get_mouse_position(ctx);
+            //mouse_pos.x -= self.scroll[0];
+            //mouse_pos.y -= self.scroll[1];
+            //let path = Vec2::angle_between( -Vec2::from(self.local_player_position), -mouse_pos);
+            let mut path = f32::atan2(
+                (self.local_player_position[1] - mouse_pos.y) - self.scroll[1],
+                (self.local_player_position[0] - mouse_pos.x) - self.scroll[0]
+            );
+           
+            println!("{}", path);
+
+            self.current_active_bullets.push(
+                PlayersBullet { 
+                    players_name: ("[me]".to_string()), 
+                    rect: (Rectangle::new(self.local_player_position[0], self.local_player_position[1], BULLET_WIDTH, BULLET_WIDTH)), 
+                    direction: (path), 
+                    speed: (10.0) 
+                }
+            );        
+            unsafe {
+                LOCAL_DETAILS.recent_bullet_position_and_direction = [self.local_player_position[0], self.local_player_position[1], path];  
+            }
+        }
 
         if input::is_key_down(ctx, Key::Escape) {
             unsafe {
@@ -373,10 +382,14 @@ fn server_handle() {
                 let data = std::str::from_utf8(&raw_receive_data);
                 match data {
                     Ok(msg) => {
-                        unsafe {
-                            let actual_data = msg[0..(msg.find("~").unwrap())].to_string();
-                            PLAYERS_DETAILS = get_players_from_string(actual_data);
-                        }
+                        let actual_data;
+                        match msg.find("~") {
+                            Some(cut_off) => { 
+                                actual_data = msg[0..cut_off].to_string(); 
+                                unsafe { PLAYERS_DETAILS = get_players_from_string(actual_data); }
+                            }
+                            None => {}
+                        }  
                     }
                     Err(e) => {println!("[ERROR]: {}", e);}
                 }
