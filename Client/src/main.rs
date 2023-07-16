@@ -58,7 +58,7 @@ const MAX_PLAYERS:usize = 20;
 static mut LOCAL_DESIRES_CONNECTED:bool = true;
 static mut LOCAL_IS_HIT: bool = false;
 
-const PLAYER_WIDTH:f32 = 25.0;
+const PLAYER_WIDTH:f32 = 20.0;
 const BULLET_WIDTH:f32 = 10.0;
 static mut MAPS_RECTANGLE:Rectangle = Rectangle::new(0.0, 0.0, 0.0, 0.0);
 
@@ -217,11 +217,18 @@ impl State for GameState {
         let current_local_rect:Rectangle = Rectangle::new(self.local_player_position[0], self.local_player_position[1], PLAYER_WIDTH, PLAYER_WIDTH);
         let mut bullets_to_remove:Vec<usize> = Vec::new();
         for (index, bullet) in self.current_active_bullets.clone().iter().enumerate() {
+            let current_bullet_mut = &mut self.current_active_bullets[index];
+
             // Update Bullets Position
-            self.current_active_bullets[index].rect.x -= f32::cos(self.current_active_bullets[index].direction) * self.current_active_bullets[index].speed;
-            self.current_active_bullets[index].rect.y -= f32::sin(self.current_active_bullets[index].direction) * self.current_active_bullets[index].speed;
+            current_bullet_mut.rect.x -= f32::cos(current_bullet_mut.direction) * current_bullet_mut.speed;
+            current_bullet_mut.rect.y -= f32::sin(current_bullet_mut.direction) * current_bullet_mut.speed;
             
-            if current_local_rect.intersects(&bullet.rect) {
+            current_bullet_mut.speed -= 0.06;
+
+            if current_bullet_mut.speed <= 2.0 {
+                bullets_to_remove.push(index);
+            }
+            else if current_local_rect.intersects(&bullet.rect) {
                 // Bullet has hit player
                 if self.current_active_bullets[index].players_name != "[me]" {
                     //   bullets_to_remove.push(index);
@@ -229,7 +236,6 @@ impl State for GameState {
                         LOCAL_IS_HIT = true;
                     }
                     self.local_player_position = [0.0; 2];
-                
                 }
 
             }
@@ -310,7 +316,6 @@ impl State for GameState {
         if self.local_player_position[1] >= (self.map_rect.y + self.map_rect.height) {
             self.local_player_position[1] = self.map_rect.y + self.map_rect.height
         }
-
 
         // Typing in chat
         if self.chat_mode {
