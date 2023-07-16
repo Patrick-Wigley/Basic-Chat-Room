@@ -1,6 +1,7 @@
 use std::net::TcpStream;
 use std::io::{Read, Write};
 use std::{thread, sync::{Arc, Mutex, RwLock}};
+use rand::prelude::*;
 use std::time::Duration;
 
 
@@ -235,7 +236,8 @@ impl State for GameState {
                     unsafe {
                         LOCAL_IS_HIT = true;
                     }
-                    self.local_player_position = [0.0; 2];
+
+                    self.local_player_position = [(random::<f32>() * 10.0) * 6.0, (random::<f32>() * 10.0) * 6.0];
                 }
 
             }
