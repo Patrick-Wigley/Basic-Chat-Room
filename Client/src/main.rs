@@ -15,6 +15,7 @@ struct GlobalPlayerDetails {
     id: usize,
     name: String,
     position: [f32; 2],
+    recent_bullet_id: String
    // message: Vec<String>
 }
 #[derive(Clone, Debug)]
@@ -23,6 +24,8 @@ struct LocalPlayerDetails {
     position: [f32; 2],
     recent_bullet_position_and_direction: [f32; 3], 
     message: String,
+    // Used for other clients to determine when a new bullet has come compared to the previous 'new_bullet_id'
+    new_bullet_id: usize
 }
 
 #[derive(Clone, Debug)]
@@ -33,6 +36,7 @@ struct PlayersMessage {
 
 #[derive(Clone, Debug)]
 struct PlayersBullet {
+    players_bullet_id: String,
     players_name: String,
     rect: Rectangle,
     direction: f32,
@@ -40,10 +44,11 @@ struct PlayersBullet {
 }
 
 /* GLOBALS & CONSTS */
-static mut LOCAL_DETAILS:LocalPlayerDetails = LocalPlayerDetails {name: (String::new()), position: ([0.0, 0.0]), recent_bullet_position_and_direction: ([0.0, 0.0, 0.0]), message: (String::new())};
+static mut LOCAL_DETAILS:LocalPlayerDetails = LocalPlayerDetails {name: (String::new()), position: ([0.0, 0.0]), recent_bullet_position_and_direction: ([0.0, 0.0, 0.0]), message: (String::new()), new_bullet_id: (0)};
 static mut PLAYERS_DETAILS:Vec<GlobalPlayerDetails> = Vec::new();
 static mut PLAYERS_MESSAGES:Vec<PlayersMessage> = Vec::new();
 static mut CHAT_LOG:Vec<String> = Vec::new();
+static mut PREVIOUS_PLAYER_FOUND:String = String::new();
 
 //static mut ACTIVE_BULLETS:Mutex<Vec<PlayersBullet>> = Mutex::new(Vec::new());
 static mut NEW_BULLETS_BUF:Mutex<Vec<PlayersBullet>> = Mutex::new(Vec::new());
@@ -237,6 +242,7 @@ impl State for GameState {
                         LOCAL_IS_HIT = true;
                     }
 
+
                     self.local_player_position = [(random::<f32>() * 10.0) * 6.0, (random::<f32>() * 10.0) * 6.0];
                 }
 
@@ -285,6 +291,7 @@ impl State for GameState {
 
             self.current_active_bullets.push(
                 PlayersBullet { 
+                    players_bullet_id: "[me]".to_string(),
                     players_name: ("[me]".to_string()), 
                     rect: (Rectangle::new(self.local_player_position[0], self.local_player_position[1], BULLET_WIDTH, BULLET_WIDTH)), 
                     direction: (path), 
@@ -293,6 +300,7 @@ impl State for GameState {
             );        
             unsafe {
                 LOCAL_DETAILS.recent_bullet_position_and_direction = [self.local_player_position[0], self.local_player_position[1], path];  
+                LOCAL_DETAILS.new_bullet_id += 1;
             }
         }
 
@@ -385,7 +393,7 @@ const Y:usize = 1;
 /// TCP Stream for current client & server communications of data \ 
 /// Handled by its own thread
 fn server_handle() {
-    let stream = TcpStream::connect("127.0.0.1:80");
+    let stream = TcpStream::connect("");
     
     match stream {
         Ok(mut stream) => {
@@ -422,7 +430,7 @@ fn server_handle() {
                     send_val = get_string_from_local_details(local_details_copy);
                     // Clear local message content
                     LOCAL_DETAILS.message = "".to_string();
-                    LOCAL_DETAILS.recent_bullet_position_and_direction = UNSET_BULLET;
+                    //LOCAL_DETAILS.recent_bullet_position_and_direction = UNSET_BULLET;
                 }
                 let _ = stream.write(send_val.as_bytes());
                 
@@ -438,10 +446,11 @@ fn server_handle() {
 /// Prepares string which will be sent over to the server \
 /// Returns prepared String
 fn get_string_from_local_details(local_player_details: LocalPlayerDetails) -> String {
-    format!("{}:{},{}:{},{},{}:{}~ ",
+    format!("{}:{},{}:{}]{},{},{}:{}~ ",
     local_player_details.name,
     local_player_details.position[0], local_player_details.position[1], 
-    local_player_details.recent_bullet_position_and_direction[0], local_player_details.recent_bullet_position_and_direction[1], local_player_details.recent_bullet_position_and_direction[2],
+    local_player_details.new_bullet_id, local_player_details.recent_bullet_position_and_direction[0], local_player_details.recent_bullet_position_and_direction[1], local_player_details.recent_bullet_position_and_direction[2],
+    
     local_player_details.message
     )  
 }
@@ -450,12 +459,21 @@ fn get_string_from_local_details(local_player_details: LocalPlayerDetails) -> St
 fn get_players_from_string(data: String) -> Vec<GlobalPlayerDetails> {
     let mut ret: Vec<GlobalPlayerDetails> = Vec::new();
     let mut new_bullets_gathered: Vec<PlayersBullet> = Vec::new();
-
+  //  let previous_player_details: Vec<GlobalPlayerDetails>;
+    
+    let mut ids_found: String = String::new();
+    let previous_ids_found:String; 
+    let previous_player_details: Vec<GlobalPlayerDetails>;
+    unsafe {
+        previous_ids_found = PREVIOUS_PLAYER_FOUND.clone();
+        previous_player_details = PLAYERS_DETAILS.clone();
+    }
+    
     let player_values = data.split(";");
     for val in player_values.into_iter() {
         if !val.contains("|") && !val.is_empty() {
             // Player slot is active
-            let mut player_details = GlobalPlayerDetails {id: (usize::MAX), name: ("[Unknown User]".to_string()), position: ([-1000.0, -1000.0]) };
+            let mut player_details = GlobalPlayerDetails {id: (usize::MAX), name: ("[Unknown User]".to_string()), position: ([-1000.0, -1000.0]), recent_bullet_id: (String::from("0"))};
             let values = val.split(":");
             
             let mut data_is_corrupt = false;
@@ -467,20 +485,34 @@ fn get_players_from_string(data: String) -> Vec<GlobalPlayerDetails> {
                     0 => { 
                         //Player ID
                         match j.parse::<usize>() {
-                            Ok(r) => { player_details.id = r; player_id_found = true; }
+                            Ok(r) => { player_details.id = r; player_id_found = true; ids_found.push_str(format!("[{}]", r).as_str()) }
                             Err(e) => { println!("{}", e); } 
                         }                    
                     } 
                     1 => {player_details.name = j.to_string();}
                     2 => {player_details.position = extract_player_position(j.trim().to_string());}
                     3 => { 
-                        match extract_player_bullet_info(j.trim().to_string()) {
-                            Some(r) => {
-                               // if DEBUG {println!("Bullet info: {:?}", r); }
-                                new_bullets_gathered.push(r);
+
+                        if previous_ids_found.contains(format!("[{}]", player_details.id).as_str()) {
+                            match extract_player_bullet_info(j.trim().to_string()) {
+                                Some(r) => {
+                                   // if DEBUG {println!("Bullet info: {:?}", r); }
+                                    let previous_bullet_id: String;
+                                    
+                                    let mut id:usize = 0;
+                                    if player_details.id != 0 { id = player_details.id - 1; }  
+                                    previous_bullet_id = previous_player_details[id].clone().recent_bullet_id;
+                                    if format!("{}", id) != previous_bullet_id {
+                                        // Bullet id is new
+                                        println!("new bullet! - new: {} old {}", id, previous_bullet_id);
+                                        new_bullets_gathered.push(r);
+                                    }
+                                    
+                                }
+                                None => {}
                             }
-                            None => {}
                         }
+                        
                     }
                     4 => { 
                         players_message = j.to_string();
@@ -519,6 +551,7 @@ fn get_players_from_string(data: String) -> Vec<GlobalPlayerDetails> {
         for new_bullet in new_bullets_gathered {
             new_bullets_buf_mutex.push(new_bullet);
         }
+        PREVIOUS_PLAYER_FOUND = ids_found
         // Guard drops once 'unsafe {}' scope here is finished
     }
 
@@ -549,13 +582,28 @@ fn extract_player_position(data:String) -> [f32; 2] {
     ret  
 }
 /// EXTRACTS NEW BULLETS X,Y,DIRECTION VALUES FROM STRING \
-/// Returns: PlayersBullet { players_name, xy, direction, speed }
+/// Returns: PlayersBullet { ID, players_name, xy, direction, speed }
 fn extract_player_bullet_info(data:String) -> Option<PlayersBullet> {
-    let mut ret:PlayersBullet = PlayersBullet { players_name: ("".to_string()), rect: (Rectangle::new(0.0, 0.0, BULLET_WIDTH, BULLET_WIDTH)), direction: (0.0), speed: (10.0) };
+    let mut ret:PlayersBullet = PlayersBullet { players_bullet_id: ("".to_string()), players_name: ("".to_string()), rect: (Rectangle::new(0.0, 0.0, BULLET_WIDTH, BULLET_WIDTH)), direction: (0.0), speed: (10.0) };
     // x, y, direction
     let mut xyd_values:[f32; 3] = [f32::MAX; 3]; 
+    // ADD ID, COLLECT IT HERE AND REMOVE BEFORE BELOW
+    let id_and_data = data.split("]");
+    let mut actual_data:String = "".to_string();
+    if id_and_data.clone().count() == 2 {
+        for (index, i) in id_and_data.into_iter().enumerate() {
+            match index {
+                0 => { ret.players_bullet_id = i.to_string(); }
+                1 => { actual_data = i.clone().to_string(); }
+                _ => { println!("Found extra values? - {}", data); }
+            }
+        }
+    }
+    else {
+        println!("Couldnt find id seperation for Players Bullet? - {}", data);
+    }
 
-    let x_y_direction_values = data.split(',');
+    let x_y_direction_values = actual_data.split(',');
     if x_y_direction_values.clone().count() == 3 {
         for (index, val) in x_y_direction_values.into_iter().enumerate() {
             let parse_result = val.parse::<f32>();
