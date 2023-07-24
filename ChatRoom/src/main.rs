@@ -21,7 +21,7 @@ static mut ACTIVE_PLAYERS_COUNT:usize = 0;
 const UNSET_BULLET:String = String::new();
 const BYTES_PER_CLIENT_MSG:usize = 455;
 
-// KEY:
+// KEY: 
 // Example string - "12.1,51.2 : 'message' : value ; "12.1,51.2 : 'message' : value" 
 // ; - End of a players details
 // : - Seperation of a PlayersDetails value
@@ -59,9 +59,9 @@ fn handle_connection(mut client: TcpStream) {
         unsafe {
             let mut other_players_details:Vec<PlayerDetails> = PLAYERS_DETAILS.clone();
             other_players_details.remove(players_id);
-            send_val = stringvec_to_string(other_players_details);
-            
+            send_val = stringvec_to_string(other_players_details);   
         }
+       
         let write_result = client.write(send_val.as_bytes());
         match write_result {
             Ok(_r) => {}
@@ -127,11 +127,13 @@ fn main() {
     unsafe {
         PLAYERS_DETAILS.resize(MAX_USERS, PlayerDetails { id: (usize::MAX), name: ("|".to_string()), pos: ("0.0,0.0".to_string()), bullet_info: (UNSET_BULLET), msg: ("".to_string()) });
     }
-    let listener_result = TcpListener::bind("127.0.0.1:80");
+    let host = "";
+    let listener_result = TcpListener::bind(host);
+
 
     match listener_result {
         Ok(listener) => {
-            println!("[SERVER]: Now Listening for connections");
+            println!("[SERVER]: Now Listening for connections on {}", host);
             for incoming_stream in listener.incoming() {
                 match incoming_stream {
                     Ok(s) => { 

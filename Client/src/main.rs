@@ -397,7 +397,6 @@ fn server_handle() {
     
     match stream {
         Ok(mut stream) => {
-            
             loop {
                 /* RECEIVING DATA FROM SERVER */               
                 let mut raw_receive_data:[u8; 550] = [0u8; 550];
@@ -409,7 +408,9 @@ fn server_handle() {
                         match msg.find("~") {
                             Some(cut_off) => { 
                                 actual_data = msg[0..cut_off].to_string(); 
-                                unsafe { PLAYERS_DETAILS = get_players_from_string(actual_data); }
+                                unsafe { 
+                                    PLAYERS_DETAILS = get_players_from_string(actual_data); 
+                                }
                             }
                             None => {}
                         }  
@@ -458,6 +459,7 @@ fn get_string_from_local_details(local_player_details: LocalPlayerDetails) -> St
 /// Returns processed Vector
 fn get_players_from_string(data: String) -> Vec<GlobalPlayerDetails> {
     let mut ret: Vec<GlobalPlayerDetails> = Vec::new();
+    ret.resize(20, GlobalPlayerDetails { id: (usize::MAX), name: (String::from("")), position: ([f32::MAX; 2]), recent_bullet_id: (String::from("")) });
     let mut new_bullets_gathered: Vec<PlayersBullet> = Vec::new();
   //  let previous_player_details: Vec<GlobalPlayerDetails>;
     
@@ -468,7 +470,7 @@ fn get_players_from_string(data: String) -> Vec<GlobalPlayerDetails> {
         previous_ids_found = PREVIOUS_PLAYER_FOUND.clone();
         previous_player_details = PLAYERS_DETAILS.clone();
     }
-    
+
     let player_values = data.split(";");
     for val in player_values.into_iter() {
         if !val.contains("|") && !val.is_empty() {
@@ -492,27 +494,26 @@ fn get_players_from_string(data: String) -> Vec<GlobalPlayerDetails> {
                     1 => {player_details.name = j.to_string();}
                     2 => {player_details.position = extract_player_position(j.trim().to_string());}
                     3 => { 
-
-                        if previous_ids_found.contains(format!("[{}]", player_details.id).as_str()) {
+                        
+                        if previous_ids_found.contains(&format!("{}", player_details.id).to_string()) {
                             match extract_player_bullet_info(j.trim().to_string()) {
-                                Some(r) => {
-                                   // if DEBUG {println!("Bullet info: {:?}", r); }
-                                    let previous_bullet_id: String;
+                                Some(bullet_data) => {
                                     
-                                    let mut id:usize = 0;
-                                    if player_details.id != 0 { id = player_details.id - 1; }  
-                                    previous_bullet_id = previous_player_details[id].clone().recent_bullet_id;
-                                    if format!("{}", id) != previous_bullet_id {
-                                        // Bullet id is new
-                                        println!("new bullet! - new: {} old {}", id, previous_bullet_id);
-                                        new_bullets_gathered.push(r);
-                                    }
+                                    // if DEBUG {println!("Bullet info: {:?}", r); }
                                     
+                                    let players_previous_details = previous_player_details[player_details.id].clone();
+                                    player_details.recent_bullet_id = players_previous_details.recent_bullet_id.clone();
+
+                                    if !(bullet_data.players_bullet_id.eq(&player_details.recent_bullet_id)) {
+                                        // println!("new bullet! - new: {} old {}", bullet_data.players_bullet_id, player_details.recent_bullet_id);
+                                        
+                                        player_details.recent_bullet_id = bullet_data.players_bullet_id.clone();
+                                        new_bullets_gathered.push(bullet_data);
+                                    } 
                                 }
                                 None => {}
                             }
                         }
-                        
                     }
                     4 => { 
                         players_message = j.to_string();
@@ -542,7 +543,9 @@ fn get_players_from_string(data: String) -> Vec<GlobalPlayerDetails> {
                     println!("Could not find player id? - {}", val)
                 }
             }
-            ret.push(player_details);
+            // Should be the id just gathered from server - (This should be a reserved spot for this player)
+            let id = player_details.id.clone();
+            ret[id] = player_details;
         }
     }
     // Push new collected bullets to buffer
